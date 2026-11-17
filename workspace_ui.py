@@ -32,9 +32,12 @@ class Workspace:
         self.home_button.clicked.connect(self.go_home);row.addWidget(self.home_button)
         self.top_tabs=W.QTabBar();self.top_tabs.setObjectName('WorkspaceTabs')
         self.top_tabs.setExpanding(False);self.top_tabs.setUsesScrollButtons(True)
+        self.top_tabs.setMinimumWidth(0)
+        self.top_tabs.setSizePolicy(W.QSizePolicy.Policy.Ignored,W.QSizePolicy.Policy.Fixed)
         self.top_tabs.setElideMode(C.Qt.TextElideMode.ElideRight);self.top_tabs.setTabsClosable(False)
         self.top_tabs.setDocumentMode(True);self.top_tabs.setDrawBase(False);row.addWidget(self.top_tabs,1)
-        self.local_badge=W.QLabel('●  로컬 실행');self.local_badge.setObjectName('WorkspaceLocalBadge');row.addWidget(self.local_badge)
+        self.local_badge=W.QLabel('●  로컬 실행');self.local_badge.setObjectName('WorkspaceLocalBadge')
+        self.local_badge.setSizePolicy(W.QSizePolicy.Policy.Fixed,W.QSizePolicy.Policy.Fixed);row.addWidget(self.local_badge)
         for text,tip,command in [('플로팅','작은 플로팅 메뉴로 전환',launcher.toggle_float),('설정','화면 · 글꼴 · 창 설정',launcher.customize)]:
             b=W.QToolButton();b.setText(text);b.setToolTip(tip);b.setAccessibleName(text)
             if text=='설정':
@@ -104,7 +107,7 @@ class Workspace:
                 for path in self.tab_paths:
                     title=self.notebook.tab(path,'text');index=self.top_tabs.addTab(title)
                     self.top_tabs.setTabToolTip(index,title)
-                    close=W.QToolButton();close.setText('×');close.setToolTip(title+' 닫기');close.setMinimumSize(28,28)
+                    close=W.QToolButton();close.setText('×');close.setToolTip(title+' 닫기');close.setFixedSize(18,18)
                     close.clicked.connect(lambda checked=False,p=path:self.close_index(self.tab_paths.index(p)) if p in self.tab_paths else None)
                     self.top_tabs.setTabButton(index,W.QTabBar.ButtonPosition.RightSide,close)
             if current in self.tab_paths:self.top_tabs.setCurrentIndex(self.tab_paths.index(current))

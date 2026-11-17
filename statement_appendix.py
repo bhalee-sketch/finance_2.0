@@ -266,7 +266,7 @@ def _verify_by_mapping(
         supp_val = _clean_number(supp_amount) or 0.0
         use_abs = ("감가상각" in account) or ("사용수익권" in account)
         diff = abs(fs_val) - abs(supp_val) if use_abs else fs_val - supp_val
-        complete = fs_amount is not None and supp_amount is not None
+        complete = sheet_name in supp_sheets
         is_match = complete and abs(diff) < 1
         is_both_zero = complete and abs(fs_val) < 1 and abs(supp_val) < 1
 
@@ -274,8 +274,8 @@ def _verify_by_mapping(
             {
                 "category": category_name,
                 "account": account,
-                "fs_amount": _clean_number(fs_amount),
-                "supp_amount": _clean_number(supp_amount),
+                "fs_amount": fs_val,
+                "supp_amount": supp_val,
                 "supp_sheet": sheet_name,
                 "use_abs": use_abs,
                 "diff": diff,
@@ -333,7 +333,7 @@ def _verify_unused_carry_forward_items(fs_path: str, balance_supp_path: str) -> 
         fs_val = _clean_number(fs_amount) or 0.0
         supp_val = _clean_number(supp_amount) or 0.0
         diff = fs_val - supp_val
-        complete = fs_amount is not None and supp_amount is not None
+        complete = spec["supp_sheet"] in supp_sheets
         is_match = complete and abs(diff) < 1
         is_both_zero = complete and abs(fs_val) < 1 and abs(supp_val) < 1
 
@@ -341,8 +341,8 @@ def _verify_unused_carry_forward_items(fs_path: str, balance_supp_path: str) -> 
             {
                 "category": spec["category"],
                 "account": spec["account"],
-                "fs_amount": _clean_number(fs_amount),
-                "supp_amount": _clean_number(supp_amount),
+                "fs_amount": fs_val,
+                "supp_amount": supp_val,
                 "supp_sheet": spec["supp_sheet"],
                 "use_abs": False,
                 "diff": diff,

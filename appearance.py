@@ -11,6 +11,7 @@ from qt_ui import ttk,font as tkfont
 
 DEFAULT_FONT='Paperlogy'
 LIGHT={
+    '#FDE8E8':'#FDE8E8','#7F1D1D':'#7F1D1D',
     '#0D1420':'#F5F2FA','#172231':'#FFFFFF','#223653':'#F0EAFA',
     '#E2E8F0':'#172638','#94A3B8':'#928B9E','#93C5FD':'#9574D2',
     '#1F77B4':'#1F77B4','#FF7F0E':'#D96100','#2CA02C':'#238323',

@@ -48,7 +48,8 @@ QFrame#WorkspaceSidebar {{ background:{panel}; border:1px solid {border}; border
 QWidget#WorkspaceHomePanel {{ background:{panel}; border-radius:13px; }}
 QTabWidget#WorkspacePages::pane {{ background:{panel}; border:1px solid {border}; border-radius:13px; }}
 QTabBar#WorkspaceTabs {{ background:transparent; }}
-QTabBar#WorkspaceTabs::tab {{ background:transparent; color:{muted}; padding:8px 15px; margin:0 2px; border:0; border-radius:8px; min-width:40px; }}
+QTabBar#WorkspaceTabs::tab {{ background:transparent; color:{muted}; padding:5px 6px; margin:0; border:0; border-radius:5px; min-width:0; }}
+QTabBar#WorkspaceTabs QToolButton {{ padding:0; margin:0; min-width:18px; }}
 QTabBar#WorkspaceTabs::tab:selected {{ background:{panel}; color:{accent}; font-weight:400; }}
 QTabBar#WorkspaceTabs[homeActive="true"]::tab:selected {{ background:transparent; color:{muted}; }}
 QToolButton#WorkspaceHomeButton:checked {{ background:{selection}; }}

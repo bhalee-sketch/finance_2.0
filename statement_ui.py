@@ -22,9 +22,9 @@ def export_appendix(result,path):
     for item in result['items']:
         missing=item['fs_amount'] is None or item['supp_amount'] is None
         s.append([item['category'],item['account'],item['fs_amount'],item['supp_amount'],
-                  None if missing else item['diff'],'확인필요' if missing else ('일치' if item['is_match'] else '차이'),item['supp_sheet']])
+                  None if missing else item['diff'],'일치' if item['is_match'] else '확인필요',item['supp_sheet']])
         if not item['is_match']:
-            for c in s[s.max_row]:c.fill=PatternFill('solid',fgColor='FFFF00')
+            for c in s[s.max_row]:c.fill=PatternFill('solid',fgColor='FDE8E8')
     for c in s[1]:c.font=Font(bold=True);c.fill=PatternFill('solid',fgColor='D9E1F2')
     for row in s:
         for c in row:
@@ -37,9 +37,24 @@ def export_appendix(result,path):
     s.freeze_panes='A2';s.auto_filter.ref=s.dimensions
     summary=w.create_sheet('요약');summary.append(['항목','건수'])
     for label,key in [('검증 대상','total'),('일치','matched'),('차이 또는 확인필요','mismatched')]:summary.append([label,result[key]])
-    summary.append(['참고','금액이 없는 항목은 0으로 판정하지 않고 확인필요로 표시합니다. 양쪽 모두 절댓값 1원 미만인 항목은 원본 규칙대로 제외합니다.'])
+    summary.append(['참고','빈 금액은 0원으로 비교하며 양쪽 모두 절댓값 1원 미만인 항목은 제외합니다.'])
     summary.column_dimensions['A'].width=26;summary.column_dimensions['B'].width=90
     w.save(path);w.close();return path
+
+
+def center_loading_window(loading,owner):
+    """Size the dialog explicitly before centering over an embedded or standalone view."""
+    loading.update_idletasks()
+    rect=owner._q.rect()
+    center=owner._q.mapToGlobal(rect.center())
+    screen=tk.application().screenAt(center) or owner._q.screen()
+    available=screen.availableGeometry()
+    width=min(max(420,loading.winfo_reqwidth()+16),available.width()-24)
+    height=min(max(170,loading.winfo_reqheight()+16),available.height()-24)
+    x=max(available.left()+12,min(center.x()-width//2,available.right()-width-11))
+    y=max(available.top()+12,min(center.y()-height//2,available.bottom()-height-11))
+    loading.geometry(f'{width}x{height}{x:+d}{y:+d}')
+    loading._q.setFixedSize(width,height)
 
 
 class Jobs:
@@ -59,16 +74,14 @@ class Jobs:
             nonlocal loading,progress
             if not self.busy or not self.window.winfo_exists():return
             loading=tk.Toplevel(self.window,show_on_create=False);loading.title('자료 처리 중')
-            loading.transient(self.window);loading.resizable(False,False);dark_titlebar(loading)
+            loading.transient(self.window);dark_titlebar(loading)
             loading.protocol('WM_DELETE_WINDOW',lambda:None)
             panel=ttk.Frame(loading,padding=24);panel.pack(fill='both',expand=True)
             ttk.Label(panel,text='자료를 처리하고 있습니다',style='Section.TLabel').pack(anchor='w')
             ttk.Label(panel,text='파일 크기에 따라 시간이 걸릴 수 있습니다.',style='Muted.TLabel').pack(anchor='w',pady=(8,14))
             progress=ttk.Progressbar(panel,mode='indeterminate',length=320);progress.pack(fill='x');progress.start(12)
-            loading.update_idletasks()
-            x=self.window.winfo_rootx()+max(0,(self.window.winfo_width()-loading.winfo_reqwidth())//2)
-            y=self.window.winfo_rooty()+max(0,(self.window.winfo_height()-loading.winfo_reqheight())//2)
-            loading.geometry(f'+{x}+{y}');loading.deiconify()
+            center_loading_window(loading,self.window)
+            loading.deiconify()
         if self.show_loading:show_timer=self.window.after(250,show_loading)
         def worker():
             try:self.messages.put((True,work()))
@@ -364,7 +377,7 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
     if not appendix:
         box=ttk.Combobox(frame,textvariable=mode,values=list(modes),state='readonly');box.pack(anchor='w',pady=10);jobs.controls.append(box)
         ttk.Label(frame,text='자금계산서는 C↔I열 절댓값, 재무상태표·운영계산서는 C↔E열을 비교합니다.',style='Muted.TLabel').pack(anchor='w')
-    else:ttk.Label(frame,text='저장된 재무제표·부속명세서를 비교합니다. 값·시트가 없으면 확인필요로 표시합니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
+    else:ttk.Label(frame,text='빈 금액은 0원으로 비교합니다. 차이가 있거나 시트가 없으면 확인필요로 표시합니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
     cols=['구분','과목','재무제표','비교 금액','차이','결과'] if appendix else ['과목','대학 금액','합산 금액','차이','결과','비고']
     def execute():
         selected=[v.get().strip() for v in paths]
@@ -386,7 +399,7 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
             for item in result['items']:
                 if appendix:
                     missing=item['fs_amount'] is None or item['supp_amount'] is None
-                    values=[item['category'],item['account'],item['fs_amount'],item['supp_amount'],None if missing else item['diff'],'확인필요' if missing else ('일치' if item['is_match'] else '차이')]
+                    values=[item['category'],item['account'],item['fs_amount'],item['supp_amount'],None if missing else item['diff'],'일치' if item['is_match'] else '확인필요']
                 else:values=[item['key'],item['school_amount'],item['combined_amount'],item['diff_amount'],'일치' if item['is_match'] else '확인필요',item['note']]
                 from statement_catalog import amount_text
                 numeric_columns=(2,3,4) if appendix else (1,2,3)
@@ -401,4 +414,8 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
     tree=table(frame,cols)
     for index in ((2,3,4) if appendix else (1,2,3)):tree.column(cols[index],anchor='e')
     tree.column('결과',anchor='center')
-    if appendix:tree.tag_configure('attention',background='#F6D76B',foreground='#17212F')
+    if appendix:
+        tree.tag_configure('attention',background='#FDE8E8',foreground='#7F1D1D')
+        tree._q.setSortingEnabled(False);tree.proxy.sort(-1)
+        tree._q.horizontalHeader().setSectionsClickable(False)
+        tree._q.horizontalHeader().setSortIndicatorShown(False)

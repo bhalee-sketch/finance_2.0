@@ -17,7 +17,7 @@ class AppendixTests(unittest.TestCase):
         errors = []
         root.report_callback_exception = lambda *a: errors.append(str(a))
         window = open_appendix_view(root, lambda *a: None)
-        kind_box, sheet_box = window._appendix_selectors
+        tabs = window._appendix_tabs
         table = window._appendix_table
         def ready(name):
             deadline = time.monotonic() + 15
@@ -29,20 +29,18 @@ class AppendixTests(unittest.TestCase):
                 time.sleep(.005)
             self.fail(window._work_status.get())
         try:
-            self.assertEqual([kind_box._q.itemText(i) for i in range(2)], ['재무상태표', '운영계산서'])
+            self.assertEqual(window._appendix_sheet_entries, [(kind,name) for kind in SOURCES for name in list_sheets(kind)])
+            self.assertEqual(tabs.count(),36)
+            self.assertFalse(window._q.findChildren(q.W.QComboBox))
             ready(list_sheets('재무상태표')[0])
             count = 0
             for kind in SOURCES:
-                kind_box.set(kind)
-                kind_box.event_generate('<<ComboboxSelected>>')
-                ready(list_sheets(kind)[0])
                 original = next((DATA / 'originals').glob(f'*{kind}*.xlsx'))
                 workbook = load_workbook(original, data_only=True)
                 try:
                     self.assertEqual(list_sheets(kind), workbook.sheetnames)
                     for sheet in workbook:
-                        sheet_box.set(sheet.title)
-                        sheet_box.event_generate('<<ComboboxSelected>>')
+                        tabs.setCurrentIndex(window._appendix_sheet_entries.index((kind,sheet.title)))
                         # The same sheet can have the same title in a later workbook.
                         ready(sheet.title)
                         self.assertEqual(table.rowCount(), sheet.max_row)

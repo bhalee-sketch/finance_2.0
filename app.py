@@ -271,7 +271,11 @@ def main():
             menu_item(title) for title in ('재무분석','결산검토','계정과목 검토','차입금관리','임대사항')
         ]),
         ('3. 업무도구',[
-            menu_item(title) for title in ('세금계산서 검증','예금시재 검증','정기예금 해지계획표','자금이체 문구 생성','가수금 정산검증')
+            ('세금계산서 검증',open_tax),
+            ('예금시재 검증',lambda:open_account(root)),
+            ('정기예금 해지계획표',lambda:open_deposit(root,desktop,center_window,open_result_file)),
+            ('자금이체 문구 생성',lambda:open_transfer(root,desktop,center_window,open_result_file)),
+            ('가수금 정산검증',suspense_view),
         ]),
     ]
     from app_profile import menu_groups,settings_path

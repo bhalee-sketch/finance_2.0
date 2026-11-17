@@ -28,10 +28,7 @@ def open_appendix_view(parent, center):
     toolbar = ttk.Frame(body); toolbar.pack(fill='x', pady=(0, 10))
     ttk.Label(toolbar, text='2025회계연도').pack(side='left', padx=(0, 16))
     kind = tk.StringVar(value='재무상태표'); sheet_name = tk.StringVar()
-    kind_box = ttk.Combobox(toolbar, textvariable=kind, values=list(SOURCES), state='readonly', width=12)
-    kind_box.pack(side='left', padx=(0, 10)); kind_box._q.setAccessibleName('부속명세서 구분')
-    sheet_box = ttk.Combobox(toolbar, textvariable=sheet_name, state='readonly', width=38)
-    sheet_box.pack(side='left'); sheet_box._q.setAccessibleName('부속명세서 시트')
+    ttk.Label(toolbar, textvariable=kind).pack(side='left')
     host = ttk.Frame(body); host.pack(fill='both', expand=True)
     layout = tk.W.QVBoxLayout(host._q); layout.setContentsMargins(0, 0, 0, 0)
     table = tk.W.QTableWidget(); layout.addWidget(table)
@@ -41,9 +38,20 @@ def open_appendix_view(parent, center):
     table.setEditTriggers(tk.W.QAbstractItemView.EditTrigger.NoEditTriggers)
     table.setWordWrap(True)
     status = tk.StringVar(); ttk.Label(body, textvariable=status).pack(anchor='w', pady=(8, 0))
-    jobs = Jobs(window, status, show_loading=False); jobs.controls = [kind_box, sheet_box]
+    tab_host = ttk.Frame(body); tab_host.pack(fill='x')
+    tab_layout = tk.W.QVBoxLayout(tab_host._q); tab_layout.setContentsMargins(0, 0, 0, 0)
+    tabs = tk.W.QTabBar(); tabs.setAccessibleName('부속명세서 시트')
+    tabs.setShape(tk.W.QTabBar.Shape.RoundedSouth)
+    tabs.setExpanding(False); tabs.setUsesScrollButtons(True); tabs.setMinimumWidth(0)
+    tabs.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored, tk.W.QSizePolicy.Policy.Fixed)
+    tab_layout.addWidget(tabs)
+    entries = [(category, name) for category in SOURCES for name in list_sheets(category)]
+    for category, name in entries:
+        index = tabs.addTab(name); tabs.setTabToolTip(index, category + ' · ' + name)
+    jobs = Jobs(window, status, show_loading=False); jobs.controls = [tab_host]
     window._appendix_table = table
-    window._appendix_selectors = (kind_box, sheet_box)
+    window._appendix_tabs = tabs
+    window._appendix_sheet_entries = entries
 
     def fonts(event=None):
         from appearance import controller
@@ -91,15 +99,14 @@ def open_appendix_view(parent, center):
                 table.setUpdatesEnabled(True); workbook.close()
         jobs.run(load, display)
 
-    def change_kind(event=None):
-        names = list_sheets(kind.get())
-        sheet_box.configure(values=names)
-        sheet_name.set(names[0] if names else '')
+    def change_sheet(index):
+        if jobs.busy or index < 0:return
+        category, name = entries[index]
+        kind.set(category); sheet_name.set(name)
         show_sheet()
 
-    kind_box.bind('<<ComboboxSelected>>', change_kind)
-    sheet_box.bind('<<ComboboxSelected>>', lambda event: show_sheet())
+    tabs.currentChanged.connect(change_sheet)
     window.bind('<<ThemeChanged>>', fonts)
-    window.after(100, change_kind)
+    window.after(100, lambda: change_sheet(tabs.currentIndex()))
     window.deiconify()
     return window
