@@ -246,35 +246,32 @@ def main():
     def suspense_view():
         from suspense_ui import open_suspense
         open_suspense(root,desktop,center_window,open_result_file)
+    def pending_menu(title):
+        window=tk.Toplevel(root,show_on_create=False)
+        window.title(title)
+        center_window(window,900,600)
+        frame=ttk.Frame(window,padding=24);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=title,style='Section.TLabel').pack(anchor='w')
+        ttk.Label(frame,text='준비 중',style='Muted.TLabel').pack(anchor='w',pady=12)
+        window.deiconify()
+
+    def menu_item(title):
+        return (title,lambda:pending_menu(title))
+
+    from appendix_view import open_appendix_view
     groups=[
         ('1. 재무제표',[
             ('재무제표 조회',lambda:open_statement_view(root,desktop,center_window,open_result_file)),
-            ('합산-대학 재무제표 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file)),
-            ('재무제표-부속명세서 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file,True)),
-            ('보조원장 조회',lambda:open_ledger(root,desktop,center_window,open_result_file)),
+            ('부속명세서 조회',lambda:open_appendix_view(root,center_window)),
+            ('계정별원장 조회',lambda:open_ledger(root,desktop,center_window,open_result_file)),
+            ('합산재무제표 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file)),
+            ('재무제표/부속명세서 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file,True)),
         ]),
         ('2. 분석도구',[
-            ('재무분석',lambda:open_analysis(root,desktop,center_window,open_result_file)),
-            ('결산검토',lambda:open_closing_review(root,desktop,center_window)),
-            ('계정과목 검토',lambda:open_audit(root,desktop,center_window,open_result_file)),
-            ('차입금관리',lambda:open_loans(root,desktop,center_window,open_result_file)),
-            ('임대사항',rental_view),
+            menu_item(title) for title in ('재무분석','결산검토','계정과목 검토','차입금관리','임대사항')
         ]),
         ('3. 업무도구',[
-            ('세금계산서 검증',open_tax),
-            ('예금시재 검증',lambda:open_account(root)),
-            ('정기예금 해지계획표',lambda:open_deposit(root,desktop,center_window,open_result_file)),
-            ('자금이체 문구 생성',lambda:open_transfer(root,desktop,center_window,open_result_file)),
-            ('가수금 정산검증',suspense_view),
-        ]),
-        ('4. 재원·계좌 검증',[
-            ('지출계좌별 재원코드 검증',lambda:open_macro(root,desktop,center_window,open_result_file,'expense')),
-            ('기부금계좌잔액 검증',lambda:open_macro(root,desktop,center_window,open_result_file,'donation')),
-            ('임의기금 지출 재원별 검증',lambda:open_macro(root,desktop,center_window,open_result_file,'fund')),
-        ]),
-        ('5. 통합 작업',[
-            ('원장통합',lambda:open_merge(root,desktop,center_window,open_result_file,True)),
-            ('재무제표 Excel 통합',lambda:open_merge(root,desktop,center_window,open_result_file)),
+            menu_item(title) for title in ('세금계산서 검증','예금시재 검증','정기예금 해지계획표','자금이체 문구 생성','가수금 정산검증')
         ]),
     ]
     from app_profile import menu_groups,settings_path

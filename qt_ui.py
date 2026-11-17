@@ -328,13 +328,21 @@ class Widget:
         if 'style' in options:self._q.setProperty('role',str(options['style']));self._q.style().unpolish(self._q);self._q.style().polish(self._q)
         return None
     def _apply_label_font(self):
-        if not isinstance(self._q,W.QLabel):return
+        if not isinstance(self._q,(W.QLabel,W.QAbstractButton,W.QComboBox,W.QLineEdit,W.QTextEdit)):return
         appearance=getattr(self._root(),'_appearance',None)
         if not appearance:return
         from numeric_tree import numeric_text
         spec=self._options.get('font',self._q.font());f=Font(font=spec).q
-        if not isinstance(spec,Font):f.setFamily((appearance.numeric_family or appearance.family) if numeric_text(self._q.text()) else appearance.family)
+        text=self._q.text() if isinstance(self._q,W.QLabel) else ''
+        if not isinstance(spec,Font):f.setFamily((appearance.numeric_family or appearance.family) if numeric_text(text) else appearance.family)
         self._q.setFont(f)
+        if isinstance(self._q,(W.QRadioButton,W.QCheckBox)):
+            metrics=G.QFontMetrics(self._q.font())
+            indicator=self._q.style().pixelMetric(W.QStyle.PixelMetric.PM_IndicatorWidth)
+            margins=self._q.contentsMargins()
+            self._q.setMinimumSize(metrics.horizontalAdvance(self._q.text())+indicator+margins.left()+margins.right()+16,
+                                   metrics.height()+margins.top()+margins.bottom()+12)
+        self._q.updateGeometry()
     config=configure
     def cget(self,key):
         if key=='background':return self._options.get('background',self._options.get('bg',''))

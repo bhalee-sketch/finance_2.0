@@ -1,0 +1,75 @@
+{
+  "fiscal_year": 2025,
+  "source_sha256": "1c92ea76f8bbeea42a115083078df8dbd23d1831cc01c3aa3558c0d4b4f1aef5",
+  "sheets": [
+    {
+      "sheet": "등록금명세서",
+      "rows_including_header": 156,
+      "columns": 13,
+      "nonempty_cells": 1042,
+      "numeric_column_totals": {
+        "6": "232",
+        "8": "0",
+        "9": "146700000",
+        "7": "7697",
+        "11": "20503768408"
+      }
+    },
+    {
+      "sheet": "계절학기명세서",
+      "rows_including_header": 42,
+      "columns": 11,
+      "nonempty_cells": 289,
+      "numeric_column_totals": {
+        "4": "73",
+        "5": "2079",
+        "7": "0",
+        "9": "879356030",
+        "6": "0"
+      }
+    },
+    {
+      "sheet": "단기수강료명세서",
+      "rows_including_header": 12,
+      "columns": 13,
+      "nonempty_cells": 84,
+      "numeric_column_totals": {
+        "7": "658",
+        "8": "0",
+        "9": "0",
+        "11": "1157387280"
+      }
+    },
+    {
+      "sheet": "전입금명세서",
+      "rows_including_header": 41,
+      "columns": 10,
+      "nonempty_cells": 131,
+      "numeric_column_totals": {
+        "4": "4271702000",
+        "5": "1571702000",
+        "6": "0"
+      }
+    },
+    {
+      "sheet": "예비비사용액명세서",
+      "rows_including_header": 9,
+      "columns": 7,
+      "nonempty_cells": 14,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "고정자산 감가상각비명세서",
+      "rows_including_header": 17,
+      "columns": 11,
+      "nonempty_cells": 85,
+      "numeric_column_totals": {
+        "4": "88566113566",
+        "6": "2472660579",
+        "3": "40232855735",
+        "5": "3452875117"
+      }
+    }
+  ],
+  "verification": "All cell values, cached values, types, number formats and numeric column totals match"
+}

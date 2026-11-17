@@ -316,8 +316,6 @@ class Launcher:
         dark_titlebar(window)
         body=ttk.Frame(window,padding=20);body.pack(fill='both',expand=True)
         ttk.Label(body,text='화면 및 사용자 설정',style='Section.TLabel').pack(anchor='w')
-        ttk.Label(body,text='글꼴과 테마는 바로 미리 적용됩니다. 취소하면 이전 설정으로 돌아갑니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
-        ttk.Label(body,text='미리보기 · 가수금 정산검증  |  1,234,567원  |  2026-11-17').pack(anchor='w',pady=(0,8))
         settings_content=ttk.Frame(body);settings_content.pack(fill='both',expand=True)
         layout=tk.W.QHBoxLayout(settings_content._q);layout.setContentsMargins(0,0,0,0);layout.setSpacing(20)
         sidebar=ttk.Frame(settings_content);sidebar._q.setFixedWidth(140);layout.addWidget(sidebar._q)
@@ -337,15 +335,16 @@ class Launcher:
         locked=tk.BooleanVar(value=before.get('lock_position',False))
         view_mode=tk.StringVar(value=before.get('view_mode','compact'))
         theme=tk.StringVar(value='화이트' if before['theme']=='light' else '다크')
-        font=tk.StringVar(value=before['font']);font_note=tk.StringVar();chart_note=tk.StringVar()
+        font=tk.StringVar(value=before['font'])
         chart_font=tk.StringVar(value=before.get('chart_font') or '화면 글꼴과 동일')
         numeric_font=tk.StringVar(value=before.get('numeric_font') or '화면 글꼴과 동일')
-        from appearance import choose_font
         installed=list(tk.font.families(self.root))
-        registered=sorted(set(installed),key=str.casefold)
-        font.set(choose_font(before['font'],installed))
-        if before.get('chart_font'):chart_font.set(choose_font(before['chart_font'],installed))
-        if before.get('numeric_font'):numeric_font.set(choose_font(before['numeric_font'],installed))
+        registered=list(before.get('registered_fonts',[]))
+        # Migrate the old bug that persisted the entire installed font catalogue.
+        if set(registered)==set(installed):registered=[]
+        for name in (before['font'],before.get('chart_font'),before.get('numeric_font')):
+            if name and name not in registered:registered.append(name)
+        registered=sorted(set(registered),key=str.casefold)
         labels=[tk.StringVar(),tk.StringVar()]
         preview_job=None;finishing=False
         def apply_preview():
@@ -356,15 +355,12 @@ class Launcher:
                 self.preferences['geometry']=[self.root.winfo_width(),self.root.winfo_height(),self.root.winfo_x(),self.root.winfo_y()]
             self.preferences.update(numeric_font='' if numeric_font.get()=='화면 글꼴과 동일' else numeric_font.get(),registered_fonts=list(registered),opacity=round(opacity.get()),size=round(size.get()),hover=hover.get(),topmost=topmost.get(),lock_position=locked.get(),theme='light' if theme.get()=='화이트' else 'dark',font=font.get(),chart_font='' if chart_font.get()=='화면 글꼴과 동일' else chart_font.get())
             from appearance import set_appearance
-            actual=set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''))
-            font_note.set(f'적용 글꼴: {actual}'+(' · 선택 글꼴이 없어 대체 글꼴 사용' if actual.casefold()!=font.get().casefold() and not (font.get()=='Paperlogy' and 'paperlogy' in actual.casefold()) else ''))
-            from appearance import controller
-            chart_note.set('그래프 적용 글꼴: '+controller(self.root).chart_family)
+            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''))
             if previous_size!=self.preferences['size']:
                 if not self.preferences.get('lock_position',False):self.preferences.pop('geometry',None)
                 self.preferences.pop('page_heights',None)
             labels[0].set(f"투명도 {100-self.preferences['opacity']}% · 0%이면 완전히 선명")
-            labels[1].set(f"메뉴 크기 {self.preferences['size']}% · 글씨와 버튼 함께 조절")
+            labels[1].set(f"메뉴 크기 {self.preferences['size']}%")
             if previous_size!=self.preferences['size']:
                 self.render();self.place()
             self.root.attributes('-topmost',self.floating or self.preferences['topmost'])
@@ -382,7 +378,6 @@ class Launcher:
         ttk.Label(appearance_row,text='화면 테마').pack(side='left')
         for label in ('다크','화이트'):
             ttk.Radiobutton(appearance_row,text=label,variable=theme,value=label,command=preview).pack(side='left',padx=8)
-        from qt_ui import font as tkfont
         font_row=ttk.Frame(appearance_panel);font_row.pack(fill='x',pady=6)
         ttk.Label(font_row,text='글꼴').pack(side='left',padx=(0,12))
         families=registered
@@ -400,13 +395,13 @@ class Launcher:
             from font_picker import open_font_picker
             def added(name):
                 if name not in registered:registered.append(name)
+                registered.sort(key=str.casefold)
                 font_box.configure(values=registered)
                 for box in (chart_box,number_box):box.configure(values=['화면 글꼴과 동일']+registered)
+                font.set(name)
                 preview()
             open_font_picker(window,added)
-        ttk.Button(appearance_panel,text='글꼴 검색 · 추가',command=register_font).pack(anchor='w',pady=8)
-        ttk.Label(appearance_panel,textvariable=font_note,style='Muted.TLabel',wraplength=500).pack(fill='x')
-        ttk.Label(appearance_panel,textvariable=chart_note,style='Muted.TLabel',wraplength=500).pack(fill='x')
+        ttk.Button(appearance_panel,text='글꼴 추가',command=register_font).pack(anchor='w',pady=8)
         for var,label,low,high in ((opacity,labels[0],30,100),(size,labels[1],75,130)):
             panel=window_panel if var is opacity else appearance_panel
             ttk.Label(panel,textvariable=label).pack(anchor='w',pady=(12,4))

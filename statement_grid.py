@@ -57,42 +57,41 @@ class StatementCellDelegate(W.QStyledItemDelegate):
 class StatementGrid(NumericTreeview):
     def __init__(self,parent,**kwargs):
         super().__init__(parent,**kwargs)
+        self._q.setSortingEnabled(False)
+        self.proxy.sort(-1)
+        self._q.horizontalHeader().setSectionsClickable(False)
+        self._q.horizontalHeader().setSortIndicatorShown(False)
         self._cell_grid=True
         self._q.setAlternatingRowColors(False)
         self._q.setStyleSheet(f'QTableView {{background:#FFFFFF; color:#172638; selection-background-color:{SELECTION_COLOR}; selection-color:#172638;}} QTableView::item:selected {{background:{SELECTION_COLOR}; color:#172638;}}')
         self._q.setItemDelegate(StatementCellDelegate(self._q))
+
+    def _header_clicked(self,index):
+        # Financial statement rows have a fixed accounting hierarchy.
+        pass
 
     def _color(self,value):
         if isinstance(value,str) and value.upper() in {*ROW_COLORS.values(),'#172638',SELECTION_COLOR,CURRENT_CELL_COLOR}:return value
         return super()._color(value)
 
     def fit_to_viewport(self,preferred,subject_column):
-        """Keep every column visible, with a stable subject width and wrapped cells."""
+        """Apply fixed column widths, leaving unused viewport space empty."""
         if not preferred:return
         self._fit_request=(dict(preferred),subject_column)
         if not getattr(self,'_fit_header_installed',False):
-            old=self._q.horizontalHeader();indicator=old.sortIndicatorSection();order=old.sortIndicatorOrder()
-            sort_column=self.proxy.sortColumn();sort_order=self.proxy.sortOrder()
             header=StatementHeader(C.Qt.Orientation.Horizontal,self._q)
-            self._q.setHorizontalHeader(header);header.setSortIndicator(indicator,order)
-            self.proxy.sort(sort_column,sort_order);header.show()
-            header.setSectionsClickable(True);header.sectionClicked.connect(self._header_clicked)
+            self._q.setHorizontalHeader(header);header.show()
+            header.setSectionsClickable(False);header.setSortIndicatorShown(False)
             header.setMinimumSectionSize(1);header.setSectionResizeMode(W.QHeaderView.ResizeMode.Fixed)
             self._q.setWordWrap(True);self._q.setTextElideMode(C.Qt.TextElideMode.ElideNone)
             self._q.setShowGrid(True)
-            self._q.setHorizontalScrollBarPolicy(C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self._q.setHorizontalScrollBarPolicy(C.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self._fit_header_installed=True
             def sorted_rows(*args):
                 self._fit_signature=None
                 self.after_idle(lambda:self.fit_to_viewport(*self._fit_request))
             self.proxy.layoutChanged.connect(sorted_rows)
-        available=max(1,self._q.viewport().width());count=len(preferred)
-        subject=min(320,int(available*.4)) if count>1 else available
-        others=[i for i in range(count) if i!=subject_column]
-        total=sum(list(preferred.values())[i] for i in others) or 1
-        widths=[0]*count;widths[subject_column]=subject;remaining=available-subject
-        for i in others:widths[i]=max(1,int(remaining*list(preferred.values())[i]/total))
-        if others:widths[others[-1]]+=available-sum(widths)
+        widths=list(preferred.values())
         appearance=getattr(self._root(),'_appearance',None)
         fonts=(getattr(appearance,'family',''),getattr(appearance,'numeric_family',''))
         signature=(tuple(widths),self._q.font().toString(),fonts,tuple(self.model.rows))

@@ -12,9 +12,8 @@ def beta_label():
 
 
 def menu_groups(groups):
-    if not beta_label():return groups
-    return [(name,[(title,command) for title,command in cards if title=='재무제표 조회'])
-            for name,cards in groups if any(title=='재무제표 조회' for title,_ in cards)]
+    # Source and packaged builds expose the same requested navigation.
+    return groups
 
 
 def settings_path(original):

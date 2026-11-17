@@ -142,7 +142,7 @@ def open_ledger(parent,desktop,center,open_file):
     from ledger_layout import COMPACT_COLUMNS,fit_ledger_columns
     from finance_data import (BUSINESS_COLUMNS,LEDGER_DISPLAY_COLUMNS,discover_ledger_years,
                               ledger_total_row,ledger_totals)
-    window,body,status,jobs=shell(parent,'보조원장 조회',center)
+    window,body,status,jobs=shell(parent,'계정별원장 조회',center)
     from audit_review import AccountOrder,load_statement_history,matches
     records=[];selected=[];source=None;page=0;page_size=300;paths={};order=AccountOrder();order_notes=[]
     folder=desktop()/'settings'/'lodges';source_year=tk.StringVar()
@@ -150,7 +150,7 @@ def open_ledger(parent,desktop,center,open_file):
     ttk.Label(top,text='원장 연도',style='Accent.TLabel').pack(side='left',padx=(0,6))
     year_box=ttk.Combobox(top,textvariable=source_year,state='readonly',width=9)
     year_box.pack(side='left',padx=(0,10));jobs.controls.append(year_box)
-    label=tk.StringVar(value='settings/lodges의 연도별 원장을 확인합니다.')
+    label=tk.StringVar(value='저장된 계정별원장을 확인합니다.')
     ttk.Label(top,textvariable=label,style='Muted.TLabel').pack(side='left')
     filters={};boxes={};filterbar=ttk.Frame(body);filterbar.pack(fill='x')
     fields=['회계단위','관','항','목'];businessbar=filterbar
@@ -220,7 +220,7 @@ def open_ledger(parent,desktop,center,open_file):
         ids=detail.selection()
         if not ids:return
         record=selected[page*page_size+detail.index(ids[0])]
-        dialog=tk.Toplevel(window);dialog.title('보조원장 · 거래 상세');dark_titlebar(dialog)
+        dialog=tk.Toplevel(window);dialog.title('계정별원장 · 거래 상세');dark_titlebar(dialog)
         center(dialog,min(820,dialog.winfo_screenwidth()-60),min(650,dialog.winfo_screenheight()-90))
         text=tk.Text(dialog,wrap='word',bg='#192131',fg='#EDF2FA',insertbackground='#EDF2FA',font=('맑은 고딕',11),padx=18,pady=14)
         scroll=ttk.Scrollbar(dialog,command=text.yview);text.configure(yscrollcommand=scroll.set)
@@ -271,12 +271,16 @@ def open_ledger(parent,desktop,center,open_file):
         if jobs.busy:return
         path=paths.get(source_year.get());clear_data()
         if path is None:return
-        label.set(path.name)
+        requested_year=source_year.get()
+        label.set(f'{requested_year}회계연도 계정별원장' if path.suffix=='.sqlite3' else path.name)
         def done(result):
             nonlocal records,source,order,order_notes
             records,history,order_notes=result;order=AccountOrder(history,records);source=path;options();apply()
         def work():
-            rows=load_ledger(path)
+            if path.suffix=='.sqlite3':
+                from ledger_database import load_records
+                rows=load_records(path,requested_year)
+            else:rows=load_ledger(path)
             try:history,notes,_=load_statement_history(desktop()/'settings')
             except Exception as e:history={};notes=[f'재무제표 순서 확인 필요: {e}']
             return rows,history,notes
@@ -285,27 +289,39 @@ def open_ledger(parent,desktop,center,open_file):
         nonlocal paths
         if jobs.busy:return
         clear_data();paths={};year_box.configure(values=[])
-        try:paths=discover_ledger_years(folder)
+        try:
+            from ledger_database import discover_years as database_years
+            paths=database_years()
         except ValueError as e:
             source_year.set('');label.set('원장 파일 확인 필요');status.set(str(e));messagebox.showerror('원장 연도',str(e),parent=window);return
         year_box.configure(values=list(paths))
         if not paths:
-            source_year.set('');label.set('원장 파일 없음');status.set(f'{folder}에 2026.xls 또는 2026회계연도.xlsx처럼 저장하세요.');return
+            source_year.set('');label.set('저장된 원장 없음');status.set('저장된 계정별원장이 없습니다. 원장 파일 선택으로 조회할 수 있습니다.');return
         if source_year.get() not in paths:source_year.set(next(iter(paths)))
         load_year()
     year_box.bind('<<ComboboxSelected>>',load_year)
+    def choose_ledger():
+        if jobs.busy:return
+        path=filedialog.askopenfilename(parent=window,filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
+        if not path:return
+        import re
+        selected_path=Path(path)
+        match=re.search(r'20\d{2}',selected_path.stem)
+        key=match.group() if match else selected_path.stem
+        paths[key]=selected_path
+        year_box.configure(values=list(paths));source_year.set(key);load_year()
     def reset():
         for v in filters.values():v.set('전체')
         start.set('');end.set('');query.set('');options();apply()
     def export():
         if source is None:return
-        target=target_file(window,None,'보조원장 조회')
+        target=target_file(window,None,'계정별원장 조회')
         if not target:return
         if Path(target).resolve() in {p.resolve() for p in paths.values()}:
             messagebox.showerror('저장 위치','원본과 다른 파일명으로 저장하세요.',parent=window);return
         data=list(selected)
         jobs.run(lambda:export_ledger(data,target,include_summary=False),lambda p:saved(window,status,open_file,p))
-    for text,command in [('Excel 저장',export),('조건 초기화',reset),('조회',apply),('연도 새로고침',refresh)]:
+    for text,command in [('Excel 저장',export),('조건 초기화',reset),('조회',apply),('원장 파일 선택',choose_ledger),('연도 새로고침',refresh)]:
         button=ttk.Button(top,text=text,command=command);button.pack(side='right',padx=4);jobs.controls.append(button)
     window.after(100,refresh)
 

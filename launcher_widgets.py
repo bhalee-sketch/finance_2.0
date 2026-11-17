@@ -9,6 +9,12 @@ def settings_icon(button,size=18,kind='settings'):
     """A font-independent eight-tooth gear with a clear central opening."""
     import math
     def redraw(event=None):
+        if kind=='settings':
+            from pathlib import Path
+            button.configure(text='')
+            button._q.setIcon(tk.G.QIcon(str(Path(__file__).resolve().parent/'assets'/'settings.svg')))
+            button._q.setIconSize(tk.C.QSize(size,size))
+            return
         scale=4;edge=size*scale;center=edge/2
         appearance=controller(button);theme=appearance.theme if appearance else 'dark'
         ink=color('#93C5FD',theme)

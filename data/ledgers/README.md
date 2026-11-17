@@ -1,0 +1,22 @@
+# 계정별원장 DB
+
+- ledgers.sqlite3: 2025회계연도 거래 164,509건
+- originals: 변경하지 않은 Excel 원본(27개 열)
+- 2025-import-report.json: 원본 SHA-256, 열 목록, 건수·합계·전 행 대조 결과
+
+조회 메뉴는 기본적으로 이 DB의 연도 목록과 거래를 읽습니다. 원본 Excel 없이도 조회됩니다.
+화면에서는 기존 주요 거래 열·필터·상세·Excel 저장 기능을 사용합니다.
+화면에 노출하지 않는 원본 열도 DB에 보존합니다.
+
+DB imports에 파일 정보와 원본 열 순서를 저장합니다. entries에는 원본 행 번호,
+정규화한 17개 조회 필드와 원본 전체 열을 각각 zlib 압축 UTF-8 JSON 배열(BLOB)로 저장합니다.
+payload는 finance_data.LEDGER_COLUMNS 순서, raw_json은 imports.headers_json 순서입니다.
+금액은 Decimal 문자열로 저장하며 SQLite 부동소수점 합산을 사용하지 않습니다.
+
+재생성: 저장소 루트에서
+`python ledger_database.py "data/ledgers/originals/2025회계연도 계정별원장.xlsx" --year 2025`
+동일 파일 재실행은 중복을 만들지 않으며 같은 연도의 다른 파일은 덮어쓰지 않습니다.
+배포할 때 data/ledgers/ledgers.sqlite3를 같은 상대 경로에 포함해야 합니다.
+'원장 파일 선택'은 외부 파일을 임시 조회하며 DB를 변경하지 않습니다.
+
+단위 검증: `python tests/test_ledger_database.py`

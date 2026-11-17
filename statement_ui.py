@@ -186,7 +186,7 @@ def open_statement_view(parent,desktop,center,open_file):
                 render_job=window.after(1,append_rows)
             else:
                 for c,value in zip(cols,measured):
-                    width=max(280,min(400,value+75)) if int(c)==subject_column else max(90,value)
+                    width=300 if int(c)==subject_column else 110
                     preferred_widths[c]=width;tree.column(c,width=width,minwidth=width,stretch=False)
                 schedule_fit()
                 for widget,state in render_states:
@@ -312,7 +312,7 @@ def open_statement_view(parent,desktop,center,open_file):
 def open_statement_verify(parent,desktop,center,open_file,appendix=False):
     from statement_compare import STATEMENT_CONFIG,build_combined_statement_verify_workbook
     from statement_appendix import run_statement_appendix_verification
-    title='재무제표 · 부속명세서 검증' if appendix else '합산 · 대학재무제표 검증'
+    title='재무제표/부속명세서 검증' if appendix else '합산재무제표 검증'
     window=tk.Toplevel(parent);window.title(title);dark_titlebar(window)
     center(window,1080,min(730,window.winfo_screenheight()-90))
     frame=ttk.Frame(window,padding=20);frame.pack(fill='both',expand=True)
@@ -328,18 +328,22 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
         year_box=ttk.Combobox(year_bar,textvariable=selected_year,state='readonly',width=10)
         year_box.pack(side='left');jobs.controls.append(year_box)
         def connect_year(event=None):
-            from statement_catalog import discover_years,discover_appendices
+            from statement_database import discover_statements
+            from appendix_view import SOURCES
             if jobs.busy:return
             tree.delete(*tree.get_children())
             for var in paths:var.set('')
             try:
-                years=discover_years(desktop()/'settings'/'finance statement')
+                years=discover_statements()
+                attached={name:discover_statements(database) for name,database in SOURCES.items()}
+                years={year:source for year,source in years.items() if any(year in items for items in attached.values())}
                 year_box.configure(values=list(years))
                 if selected_year.get() not in years:selected_year.set(next(iter(years),''))
-                if not years:status.set('연도별 폴더에 재무제표와 부속명세서를 저장하세요.');return
-                source=years[selected_year.get()];attached=discover_appendices(source)
-                for var,path in zip(paths,[source,attached['재무상태표'],attached['운영계산서']]):var.set(str(path) if path else '')
-                status.set('연도별 원본을 연결했습니다. 검증 · 결과 저장을 누르세요.')
+                if not years:status.set('저장된 재무제표와 부속명세서가 없습니다.');return
+                year=selected_year.get()
+                sources=[years[year],attached['재무상태표'].get(year),attached['운영계산서'].get(year)]
+                for var,source in zip(paths,sources):var.set(str(source.database) if source else '')
+                status.set(f'{year}년 저장 자료를 연결했습니다. 검증 · 결과 저장을 누르세요.')
             except Exception as e:messagebox.showerror('자료 연결',str(e),parent=window)
         year_box.bind('<<ComboboxSelected>>',connect_year)
         refresh=ttk.Button(year_bar,text='연도 새로고침',command=connect_year);refresh.pack(side='left',padx=8);jobs.controls.append(refresh)
@@ -360,16 +364,21 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
     if not appendix:
         box=ttk.Combobox(frame,textvariable=mode,values=list(modes),state='readonly');box.pack(anchor='w',pady=10);jobs.controls.append(box)
         ttk.Label(frame,text='자금계산서는 C↔I열 절댓값, 재무상태표·운영계산서는 C↔E열을 비교합니다.',style='Muted.TLabel').pack(anchor='w')
-    else:ttk.Label(frame,text='연도 폴더의 재무제표·부속명세서를 자동 연결합니다. 값·시트가 없으면 확인필요로 표시합니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
+    else:ttk.Label(frame,text='저장된 재무제표·부속명세서를 비교합니다. 값·시트가 없으면 확인필요로 표시합니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
     cols=['구분','과목','재무제표','비교 금액','차이','결과'] if appendix else ['과목','대학 금액','합산 금액','차이','결과','비고']
     def execute():
         selected=[v.get().strip() for v in paths]
         if not selected[0] or (not appendix and not selected[1]) or (appendix and not any(selected[1:])):
-            messagebox.showinfo('자료 선택','선택 연도 폴더의 재무제표와 부속명세서를 확인하세요.' if appendix else '필수 원본 파일을 선택하세요.',parent=window);return
+            messagebox.showinfo('자료 선택','선택 연도의 저장된 재무제표와 부속명세서를 확인하세요.' if appendix else '필수 원본 파일을 선택하세요.',parent=window);return
         tree.delete(*tree.get_children());target=output_path(selected[0],title);selected_mode=modes[mode.get()]
+        year_to_verify=selected_year.get() if appendix else None
         def work():
             if appendix:
-                result=run_statement_appendix_verification('.',selected[0],selected[1] or None,selected[2] or None)
+                from contextlib import ExitStack
+                from statement_database import StatementSource,export_source
+                with ExitStack() as stack:
+                    snapshots=[str(stack.enter_context(export_source(StatementSource(Path(path),year_to_verify)))) if path else None for path in selected]
+                    result=run_statement_appendix_verification('.',*snapshots)
                 export_appendix(result,target);return target,result
             return build_combined_statement_verify_workbook(selected_mode,*selected,str(target))
         def done(value):

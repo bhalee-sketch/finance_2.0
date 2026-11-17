@@ -24,7 +24,8 @@ QLineEdit:focus,QComboBox:focus,QTextEdit:focus {{ border-color:{accent}; }}
 QComboBox {{ padding-right:28px; combobox-popup:0; }}
 QComboBox::drop-down {{ subcontrol-origin:padding; subcontrol-position:top right; border:0; width:24px; }}
 QComboBox::down-arrow {{ image:url("{arrow}"); width:12px; height:12px; }}
-QComboBox QAbstractItemView {{ background:{panel}; selection-background-color:{selection}; }}
+QComboBox QAbstractItemView {{ background:{panel}; color:{text}; selection-background-color:{selection}; selection-color:{text}; outline:0; }}
+QComboBox QAbstractItemView::item:hover,QComboBox QAbstractItemView::item:selected {{ background:{selection}; color:{text}; }}
 QGroupBox {{ border:1px solid {border}; border-radius:6px; margin-top:12px; padding:10px; }}
 QGroupBox::title {{ subcontrol-origin:margin; left:10px; padding:0 4px; color:{muted}; }}
 QTableView:focus {{ border-color:{accent}; }}

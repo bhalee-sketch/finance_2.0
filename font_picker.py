@@ -29,8 +29,10 @@ def open_font_picker(parent,on_add):
         if selected:on_add(items.get(selected[0]));dialog.destroy()
     items.bind('<<ListboxSelect>>',preview);items.bind('<Double-1>',lambda event:add())
     ttk.Button(body,text='선택한 글꼴 추가',command=add).pack(side='right',pady=8)
-    query.trace_add('write',search);search();entry.focus_set();dialog.grab_set()
+    query.trace_add('write',search);search()
     def restore(event=None):
         if event is None or event.widget is dialog:
             if previous_grab is not None and previous_grab.winfo_exists():previous_grab.grab_set()
     dialog.bind('<Destroy>',restore)
+    dialog.update_idletasks();dialog.deiconify();dialog.grab_set();entry.focus_set()
+    return dialog
