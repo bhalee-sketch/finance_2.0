@@ -1,0 +1,74 @@
+{
+  "년도": {
+    "width": 7.0,
+    "hidden": false
+  },
+  "회계단위": {
+    "width": 14.0,
+    "hidden": false
+  },
+  "관": {
+    "width": 14.0,
+    "hidden": false
+  },
+  "항": {
+    "width": 14.0,
+    "hidden": false
+  },
+  "목": {
+    "width": 14.0,
+    "hidden": false
+  },
+  "세목": {
+    "width": 13.0,
+    "hidden": true
+  },
+  "계정명": {
+    "width": 13.0,
+    "hidden": true
+  },
+  "회계일자": {
+    "width": 14.0,
+    "hidden": false
+  },
+  "전표번호": {
+    "width": 17.5,
+    "hidden": false
+  },
+  "세부사업": {
+    "width": 11.25,
+    "hidden": false
+  },
+  "부서명": {
+    "width": 15.5,
+    "hidden": false
+  },
+  "차변": {
+    "width": 11.375,
+    "hidden": false
+  },
+  "대변": {
+    "width": 11.375,
+    "hidden": false
+  },
+  "거래선명": {
+    "width": 13.0,
+    "hidden": true
+  },
+  "예적금명": {
+    "width": 24.5,
+    "hidden": false
+  },
+  "적요": {
+    "width": 13.0,
+    "hidden": true
+  },
+  "재원": {
+    "width": 41.0,
+    "hidden": false
+  },
+  "자금 집행일": {
+    "width": 17.0,
+    "hidden": false
+  }
+}
