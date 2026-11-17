@@ -48,14 +48,22 @@ def open_account_view(parent,center,open_file):
     ttk.Label(frame,textvariable=status,style='Muted.TLabel',wraplength=1000).pack(side='bottom',fill='x',pady=(8,0))
     results=TaxResultView(frame);window._account_results=results
     workbook=None;output=None;busy=False;messages=queue.Queue()
+    from loading_ui import watch_loading
+    watch_loading(window,status,lambda:busy)
+    from background_read import BackgroundRead
+    export_task=BackgroundRead(window,status,manage_close=False)
     def export():
-        nonlocal output
-        if busy or workbook is None:return
-        try:
-            if output is None or not output.exists():
-                output=result_path('예금시재 계좌별 검증');workbook.save(output)
-            open_file(output)
-        except (OSError,subprocess.SubprocessError) as exc:messagebox.showerror('Excel 열기',str(exc),parent=window)
+        if busy or export_task.busy or workbook is None:return
+        target=output or result_path('예금시재 계좌별 검증');snapshot=workbook
+        def work():
+            if not target.exists():snapshot.save(target)
+            return target
+        def done(path):
+            nonlocal output
+            output=path;status.set(f'저장 완료 · {path}')
+            try:open_file(path)
+            except (OSError,subprocess.SubprocessError) as exc:messagebox.showerror('Excel 열기',str(exc),parent=window)
+        export_task.run(work,done,lambda error:messagebox.showerror('Excel 저장',str(error),parent=window))
     def poll():
         nonlocal busy,workbook,output
         try:ok,value=messages.get_nowait()
@@ -73,7 +81,7 @@ def open_account_view(parent,center,open_file):
             status.set('자료 확인 필요');messagebox.showerror('검증 중단',str(value),parent=window)
     def execute():
         nonlocal busy
-        if busy:return
+        if busy or export_task.busy:return
         if not cms.get() or not school.get():
             messagebox.showinfo('파일 선택','CMS 파일과 학사 파일을 모두 선택하세요.',parent=window);return
         selected=(cms.get(),school.get())
@@ -89,7 +97,7 @@ def open_account_view(parent,center,open_file):
     run_button=ttk.Button(actions,text='검증 실행',command=execute,style='Primary.TButton');run_button.pack(side='right')
     excel_button=ttk.Button(actions,text='엑셀로 열기',command=export,state='disabled');excel_button.pack(side='right',padx=8)
     def close():
-        if busy:return
+        if busy or export_task.busy:return
         if workbook is not None:workbook.close()
         window.destroy()
     window.protocol('WM_DELETE_WINDOW',close)

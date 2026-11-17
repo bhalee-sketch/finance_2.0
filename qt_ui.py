@@ -235,12 +235,12 @@ class EventFilter(C.QObject):
             if t==C.QEvent.Type.MouseButtonPress and w._emit(f'<Button-{num}>',**extra)=='break':return True
             if t==C.QEvent.Type.MouseButtonPress:w._emit('<ButtonPress>',**extra)
         if t==C.QEvent.Type.Wheel:extra['delta']=event.angleDelta().y()
-        if t==C.QEvent.Type.KeyPress:
+        if t in (C.QEvent.Type.KeyPress,C.QEvent.Type.KeyRelease):
             keys={C.Qt.Key.Key_Return:'Return',C.Qt.Key.Key_Enter:'Return',C.Qt.Key.Key_Escape:'Escape',C.Qt.Key.Key_Space:'space',C.Qt.Key.Key_Delete:'Delete',C.Qt.Key.Key_Tab:'Tab',C.Qt.Key.Key_Down:'Down',C.Qt.Key.Key_Up:'Up'}
             key=keys.get(event.key(),chr(event.key()).lower() if C.Qt.Key.Key_A<=event.key()<=C.Qt.Key.Key_Z else event.text());extra['keysym']=key;extra['char']=event.text()
             prefix='Control-' if event.modifiers()&C.Qt.KeyboardModifier.ControlModifier else ''
-            seq=f'<{prefix}{key}>'
-            if w._emit('<KeyPress>',**extra)=='break':return True
+            seq=f'<{prefix}{key}>' if t==C.QEvent.Type.KeyPress else '<KeyRelease>'
+            if t==C.QEvent.Type.KeyPress and w._emit('<KeyPress>',**extra)=='break':return True
         if t==C.QEvent.Type.Close:
             callback=w._protocols.get('WM_DELETE_WINDOW')
             if callback:event.ignore();_invoke(callback);return True
@@ -369,6 +369,9 @@ class Widget:
         if not isinstance(spec,Font):
             family=(appearance.numeric_family or appearance.family) if numeric_text(text) else appearance.family
             f.setFamilies([family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif'])
+        if getattr(appearance,'text_sizes',None):
+            group='data' if isinstance(self._q,W.QTextEdit) or numeric_text(text) else 'description' if isinstance(self._q,W.QLabel) and self._options.get('style') not in ('Section.TLabel','Title.TLabel') else 'system'
+            f.setPointSizeF(appearance.text_sizes[group])
         self._q.setFont(f)
         if isinstance(self._q,(W.QRadioButton,W.QCheckBox)):
             metrics=G.QFontMetrics(self._q.font())
@@ -423,10 +426,11 @@ class Widget:
         else:self._bindings.pop(sequence,None)
     def _emit(self,sequence,**kw):
         if sequence!='<Destroy>' and (self._destroyed or not isValid(self._q)):return
-        event=SimpleNamespace(**dict(dict(widget=self,x=0,y=0,x_root=0,y_root=0,state=0,time=int(C.QDateTime.currentMSecsSinceEpoch()),delta=0,width=self.winfo_width(),height=self.winfo_height()),**kw))
+        event=SimpleNamespace(**dict(dict(widget=self,x=0,y=0,x_root=0,y_root=0,state=0,keysym='',char='',time=int(C.QDateTime.currentMSecsSinceEpoch()),delta=0,width=self.winfo_width(),height=self.winfo_height()),**kw))
         for _,callback in list(self._bindings.get(sequence,[])):
             if _invoke(callback,event)=='break':return 'break'
     def event_generate(self,sequence,**kw):
+        if isinstance(self,Combobox) and sequence=='<Down>':self._q.showPopup()
         if isinstance(self,Canvas) and sequence=='<Motion>':self._hover(kw)
         return self._emit(sequence,**kw)
     def after(self,ms,callback=None,*args):
@@ -636,6 +640,8 @@ class Entry(Widget):
     def selection_range(self,*args):self._q.selectAll()
 class DropDownComboBox(W.QComboBox):
     def showPopup(self):
+        callback=getattr(self,'before_popup',None)
+        if callback:callback()
         super().showPopup()
         popup=self.view().window()
         if not popup.isVisible():return
@@ -648,6 +654,10 @@ class DropDownComboBox(W.QComboBox):
 
 class Combobox(Widget):
     qt_type=DropDownComboBox
+    def configure(self,cnf=None,**kw):
+        super().configure(cnf,**kw)
+        self._q.before_popup=lambda:_invoke(self._options['postcommand']) if self._options.get('postcommand') else None
+    config=configure
     def __init__(self,*args,**kw):
         super().__init__(*args,**kw);self._q.setMinimumWidth(70);self._q.setEditable(kw.get('state')!='readonly');self._q.activated.connect(lambda index:self._emit('<<ComboboxSelected>>'))
     def get(self):return self._q.currentText()
@@ -963,12 +973,13 @@ class Treeview(Widget):
     def _font(self,spec=None,numeric=False):
         appearance=getattr(self._root(),'_appearance',None)
         raw=spec or self._q.font();signature=raw.toString() if isinstance(raw,G.QFont) else str(raw)
-        key=(application().property('textScale'),signature,numeric,appearance.family if appearance else '',appearance.numeric_family if appearance else '')
+        key=(application().property('textScale'),getattr(appearance,'text_sizes',{}).get('data'),signature,numeric,appearance.family if appearance else '',appearance.numeric_family if appearance else '')
         cache=getattr(self,'_resolved_fonts',None)
         if cache is None:cache={};self._resolved_fonts=cache
         if key in cache:return cache[key]
         f=Font(font=raw)
         if appearance:f.q.setFamily((appearance.numeric_family or appearance.family) if numeric else appearance.family)
+        if appearance and getattr(appearance,'text_sizes',None):f.q.setPointSizeF(appearance.text_sizes['data'])
         cache[key]=f;self._fonts[str(f)]=f;return f
     def _character_width(self,name,char):return _fonts[name].measure(char)
     def wrap_text(self,text,font,width):
@@ -1038,6 +1049,7 @@ class Canvas(Widget):
             if app:
                 from appearance import ChartFont,NumericFont
                 f.setFamily((app.chart_family or app.family) if isinstance(o.get('font'),ChartFont) else (app.numeric_family or app.family) if isinstance(o.get('font'),NumericFont) else app.family)
+            if app and getattr(app,'text_sizes',None):f.setPointSizeF(app.text_sizes['data'])
             item.setFont(f);item.setDefaultTextColor(G.QColor(self._color(o.get('fill','#E2E8F0'))));item.setTextWidth(float(o.get('width',-1) or -1));item.document().setDocumentMargin(0)
         elif kind not in ('image','window'):
             fill=o.get('fill','');outline=o.get('fill','') if kind=='line' else o.get('outline','')

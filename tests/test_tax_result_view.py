@@ -88,7 +88,11 @@ class TaxResultTests(unittest.TestCase):
                 self.assertEqual(runner.call_args.kwargs,{'save':False})
                 excel=next(b for b in window._q.findChildren(q.W.QPushButton) if b.text()=='엑셀로 열기')
                 self.assertIs(excel.parent(),button.parent())
-                excel.click();opener.assert_called_once()
+                excel.click()
+                deadline=time.monotonic()+5
+                while not opener.called and time.monotonic()<deadline:
+                    q.application().processEvents();time.sleep(.01)
+                opener.assert_called_once()
                 self.assertTrue(Path(opener.call_args.args[0]).is_file())
                 self.assertEqual(window._tax_results.tree._q.horizontalScrollBarPolicy(),q.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
                 q.application().processEvents()

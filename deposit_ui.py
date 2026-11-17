@@ -94,7 +94,7 @@ def open_deposit(parent, desktop, center, open_file):
             fp,rp,f,r,note=value;fixed,regular=f,r
             foptions={f"{v['account']} · {v['bank']} · {v['name']}":k for k,v in f.items()}
             roptions={f"{v['account']} · {v['bank']} · {v['name']}":k for k,v in r.items()}
-            fbox.configure(values=[]);dbox.configure(values=[]);obox.configure(values=['원금과 같은 계좌'])
+            fbox.configure(values=list(foptions));dbox.configure(values=list(roptions));obox.configure(values=['원금과 같은 계좌',*roptions])
             fvalue.set('');dest.set('');other.set('원금과 같은 계좌')
             fixed_path.set(str(fp) if fp else '');regular_path.set(str(rp))
             counts.set(f'정기 {len(f)}개 · 원금 이체계좌 {len(r)}개')
@@ -113,6 +113,7 @@ def open_deposit(parent, desktop, center, open_file):
     ttk.Button(line,text='계획표 생성',command=lambda:generate(),style='Primary.TButton').pack(side='right')
     ttk.Label(left,text='출금할 정기예금 계좌').pack(anchor='w')
     fbox=ttk.Combobox(left,textvariable=fvalue,state='normal');fbox.pack(fill='x',pady=4)
+    fbox._q.setAccessibleName('출금할 정기예금 계좌')
     def show_principal(_=None):
         try:key=resolve_catalog(fixed,foptions,fvalue.get())
         except ValueError:key=None
@@ -124,11 +125,13 @@ def open_deposit(parent, desktop, center, open_file):
     dbox=ttk.Combobox(left,textvariable=dest,state='normal');dbox.pack(fill='x',pady=4)
     ttk.Label(left,text='이자 이체 계좌').pack(anchor='w')
     obox=ttk.Combobox(left,textvariable=other,state='normal',values=['원금과 같은 계좌']);obox.pack(fill='x',pady=4)
+    dbox._q.setAccessibleName('원금 이체 계좌');obox._q.setAccessibleName('이자 이체 계좌')
     def attach_search(box,var,is_fixed=False,allow_same=False):
+        box._q.setCompleter(None)
         def candidates():
             catalog=fixed if is_fixed else regular
             options=foptions if is_fixed else roptions
-            keys=search_catalog(catalog,var.get())
+            keys=list(catalog) if not var.get().strip() or var.get() in options or (allow_same and var.get()=='원금과 같은 계좌') else search_catalog(catalog,var.get())
             values=[label for label,key in options.items() if key in keys]
             if allow_same:values=['원금과 같은 계좌']+values
             box.configure(values=values)
@@ -143,7 +146,7 @@ def open_deposit(parent, desktop, center, open_file):
                 key=resolve_catalog(catalog,options,var.get())
                 var.set(next(label for label,value in options.items() if value==key))
             except ValueError:
-                if event is not None and event.keysym=='Return':
+                if event is not None and getattr(event,'keysym','')=='Return':
                     box.event_generate('<Down>')
             if is_fixed:show_principal()
         box.configure(postcommand=candidates)
@@ -161,7 +164,8 @@ def open_deposit(parent, desktop, center, open_file):
         column=c%2;row=(c//2)*2
         grid.columnconfigure(column,weight=1)
         ttk.Label(grid,text=label).grid(row=row,column=column,sticky='w',padx=4)
-        ttk.Entry(grid,textvariable=var,width=16).grid(row=row+1,column=column,sticky='ew',padx=4,pady=(3,10))
+        input_box=ttk.Entry(grid,textvariable=var,width=16);input_box._q.setAccessibleName(label)
+        input_box.grid(row=row+1,column=column,sticky='ew',padx=4,pady=(3,10))
     ttk.Label(right,textvariable=summary,style='Accent.TLabel').pack(anchor='w',pady=(0,10))
     table=ttk.Frame(right);table.pack(fill='both',expand=True)
     tree=NumericTreeview(table,columns=('account','principal','net','date'),show='headings',height=9,selectmode='browse')
@@ -211,10 +215,13 @@ def open_deposit(parent, desktop, center, open_file):
     ttk.Separator(footer).pack(fill='x',pady=(0,10))
     ttk.Label(footer,textvariable=status,style='Muted.TLabel',wraplength=740).pack(side='left',fill='x',expand=True)
     def generate():
-        try:
-            path=save_plan(root.get(),year.get(),month.get(),list(entries.values()))
-        except Exception as e:messagebox.showerror('계획표 생성 실패',str(e),parent=window);return
-        status.set('해지계획표를 저장했습니다. 결과 파일을 엽니다.')
-        try:open_file(path)
-        except Exception as e:messagebox.showwarning('저장 완료 · 열기 실패',f'{path}\n\n{e}',parent=window)
+        if reader.busy:return
+        snapshot=(root.get(),year.get(),month.get(),list(entries.values()))
+        def done(path):
+            status.set('해지계획표를 저장했습니다. 결과 파일을 엽니다.')
+            try:open_file(path)
+            except Exception as e:messagebox.showwarning('저장 완료 · 열기 실패',f'{path}\n\n{e}',parent=window)
+        def failed(error):
+            status.set('계획표 생성 실패');messagebox.showerror('계획표 생성 실패',str(error),parent=window)
+        reader.run(lambda:save_plan(*snapshot),done,failed)
     window.after(100,load)

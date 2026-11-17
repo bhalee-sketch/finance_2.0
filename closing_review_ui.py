@@ -3,11 +3,13 @@ from numeric_tree import NumericTreeview
 import qt_ui as tk
 from qt_ui import ttk,messagebox
 from statement_ui import Jobs
-from statement_catalog import discover_years,amount_text
+from statement_catalog import amount_text
+from analysis_runtime import program_statement_paths
 from statement_loader import load_statement_record_from_path
 from closing_review import review_carryover,review_fund_transfers
 from ui_theme import dark_titlebar
-from reserve_review import load_reserves,calculate
+from reserve_review import calculate
+from analysis_runtime import load_program_reserves as load_reserves
 from closing_dashboard import ClosingDashboard
 
 
@@ -97,12 +99,12 @@ def open_closing_review(parent,desktop,center):
             return carry,comparisons,reserves,errors
         jobs.run(work,done)
     def refresh():
-        nonlocal paths
         if jobs.busy:return
-        try:paths=discover_years(desktop()/'settings'/'finance statement')
-        except ValueError as exc:clear();status.set(str(exc));return
-        box.configure(values=list(paths))
-        if year.get() not in paths:year.set(next(iter(paths),''))
-        load()
+        def done(result):
+            nonlocal paths
+            paths=result;box.configure(values=list(paths))
+            if year.get() not in paths:year.set(next(iter(paths),''))
+            load()
+        jobs.run(program_statement_paths,done)
     button=ttk.Button(bar,text='새로고침',command=refresh);button.pack(side='left',padx=10);jobs.controls.append(button)
     box.bind('<<ComboboxSelected>>',load);window.after(100,refresh)

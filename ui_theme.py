@@ -1,9 +1,10 @@
 """Application-wide Qt style, with reversible light/dark preferences."""
 BG='#0D1420';PANEL='#172231';TEXT='#E2E8F0';MUTED='#94A3B8';ACCENT='#93C5FD'
 
-def qt_stylesheet(theme='light',text_scale=110):
+def qt_stylesheet(theme='light',text_scale=110,text_sizes=None):
     from pathlib import Path
     arrow=(Path(__file__).resolve().parent/'assets'/'chevron-down.svg').as_posix()
+    assets=(Path(__file__).resolve().parent/'assets').as_posix()
     light=theme=='light'
     bg='#F5F2FA' if light else '#171422';panel='#FFFFFF' if light else '#231F30';text='#403B4A' if light else '#EAE5F4';muted='#696174' if light else '#ADA4BF';border='#E9E3F0' if light else '#3A324D';accent='#7651AD' if light else '#B99AEF';selection='#E9DFF7' if light else '#44345D';stripe='#FAF8FD' if light else '#292435';button_text='#FFFFFF' if light else '#211A2D'
     stylesheet=f'''
@@ -32,6 +33,10 @@ QTableView:focus {{ border-color:{accent}; }}
 QTableView {{ background:{panel}; alternate-background-color:{stripe}; border:1px solid {border}; gridline-color:{border}; selection-background-color:{selection}; selection-color:{text}; }}
 QHeaderView::section {{ background:{panel}; color:{muted}; border:0; border-bottom:1px solid {border}; border-right:1px solid {border}; padding:8px; font-weight:600; }}
 QTabWidget::pane {{ border:1px solid {border}; border-radius:5px; }}
+QTabBar QToolButton {{ background:{selection}; color:{accent}; border:1px solid {accent}; border-radius:4px; width:28px; padding:0; }}
+QTabBar QToolButton::left-arrow {{ image:url("{assets}/chevron-left.svg"); width:18px; height:18px; }}
+QTabBar QToolButton::right-arrow {{ image:url("{assets}/chevron-right.svg"); width:18px; height:18px; }}
+QTabBar QToolButton:disabled {{ background:{panel}; border-color:{border}; }}
 QTabBar::tab {{ padding:9px 14px; border-bottom:2px solid transparent; }}
 QTabBar::tab:selected {{ color:{accent}; border-bottom-color:{accent}; background:{panel}; }}
 QScrollBar:vertical {{ width:12px; background:{bg}; }}
@@ -47,11 +52,13 @@ QLabel#WorkspaceBrand {{ background:{panel}; color:{accent}; font-size:13pt; fon
 QFrame#WorkspaceSidebar {{ background:{panel}; border:1px solid {border}; border-radius:13px; }}
 QWidget#WorkspaceHomePanel {{ background:{panel}; border-radius:13px; }}
 QTabWidget#WorkspacePages::pane {{ background:{panel}; border:1px solid {border}; border-radius:13px; }}
-QTabBar#WorkspaceTabs {{ background:transparent; }}
-QTabBar#WorkspaceTabs::tab {{ background:transparent; color:{muted}; padding:5px 6px; margin:0; border:0; border-radius:5px; min-width:0; }}
-QTabBar#WorkspaceTabs QToolButton {{ padding:0; margin:0; min-width:18px; }}
-QTabBar#WorkspaceTabs::tab:selected {{ background:{panel}; color:{accent}; font-weight:400; }}
-QTabBar#WorkspaceTabs[homeActive="true"]::tab:selected {{ background:transparent; color:{muted}; }}
+QTabBar#WorkspaceTabs {{ background:transparent; border-bottom:1px solid {border}; }}
+QTabBar#WorkspaceTabs::tab {{ background:transparent; color:{muted}; padding:5px 6px; margin:0; border:0; border-bottom:3px solid transparent; border-radius:0; min-width:0; }}
+QTabBar#WorkspaceTabs QToolButton {{ padding:0; margin:0; }}
+QToolButton#WorkspaceTabClose {{ background:transparent; border:0; min-width:22px; }}
+QToolButton#WorkspaceTabClose:hover {{ background:{selection}; }}
+QTabBar#WorkspaceTabs::tab:selected {{ background:{selection}; color:{accent}; border-bottom:3px solid {accent}; font-weight:600; }}
+QTabBar#WorkspaceTabs[homeActive="true"]::tab:selected {{ background:transparent; color:{muted}; border-bottom-color:transparent; }}
 QToolButton#WorkspaceHomeButton:checked {{ background:{selection}; }}
 QTabBar#WorkspaceTabs::tab:hover {{ background:{selection}; }}
 QLabel#WorkspaceLocalBadge {{ background:{selection}; color:{accent}; border-radius:9px; padding:4px 9px; font-size:10pt; }}
@@ -72,11 +79,22 @@ QPushButton#WorkspaceOpenButton {{ color:{accent}; background:{selection}; borde
 QTableView#WorkspaceList {{ border:0; background:{panel}; selection-background-color:{selection}; outline:0; }}
 QTableView#WorkspaceList::item {{ border:0; padding:8px; }}
 QTableView#WorkspaceList QHeaderView::section {{ border:0; border-bottom:1px solid {border}; background:{panel}; color:{muted}; padding:10px 8px; font-size:10pt; font-weight:400; }}
-QSplitter#WorkspaceSplit::handle {{ background:{bg}; width:8px; }}
+QSplitter#WorkspaceSplit::handle {{ background:{bg}; width:2px; }}
 
 '''
     import re
-    return re.sub(r'font-size:(\d+)pt',lambda match:f'font-size:{int(match.group(1))*text_scale/100:g}pt',stylesheet)
+    stylesheet=re.sub(r'font-size:(\d+)pt',lambda match:f'font-size:{int(match.group(1))*text_scale/100:g}pt',stylesheet)
+    if text_sizes:
+        system=text_sizes['system'];description=text_sizes['description'];data=text_sizes['data']
+        stylesheet+=f'''
+QWidget {{ font-size:{system:g}pt; }}
+QLabel {{ font-size:{description:g}pt; }}
+QLabel[role="Title.TLabel"],QLabel[role="Section.TLabel"],QLabel#WorkspaceSection,QLabel#WorkspaceBrand,QLabel#WorkspaceLocalBadge {{ font-size:{system:g}pt; }}
+QLabel#WorkspaceMuted,QLabel[role="Muted.TLabel"] {{ font-size:{description:g}pt; }}
+QAbstractItemView,QTextEdit,QPlainTextEdit,QHeaderView::section,QTableView#WorkspaceList QHeaderView::section {{ font-size:{data:g}pt; }}
+QTreeView#WorkspaceNavigation,QComboBox QAbstractItemView {{ font-size:{system:g}pt; }}
+'''
+    return stylesheet
 
 
 def apply_theme(root):

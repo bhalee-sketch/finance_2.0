@@ -24,18 +24,37 @@ def available_years():
     return sorted(years,reverse=True)
 
 
-def open_appendix_view(parent,center):
+def open_appendix_view(parent,center,open_file=None):
     window=tk.Toplevel(parent,show_on_create=False);window.title('부속명세서 조회');center(window,1200,750)
     body=ttk.Frame(window,padding=12);body.pack(fill='both',expand=True)
     toolbar=ttk.Frame(body);toolbar.pack(fill='x',pady=(0,8))
-    ttk.Label(toolbar,text='회계연도').pack(side='left',padx=(0,8))
+    bar=tk.W.QHBoxLayout(toolbar._q);bar.setContentsMargins(0,0,0,0);bar.setSpacing(8)
+    bar.addWidget(tk.W.QLabel('회계연도'),0,tk.C.Qt.AlignmentFlag.AlignVCenter)
     years=available_years();year=tk.StringVar(value=years[0] if years else '')
     year_box=ttk.Combobox(toolbar,textvariable=year,values=years,state='readonly',width=8)
-    year_box.pack(side='left',padx=(0,16));year_box._q.setAccessibleName('부속명세서 회계연도')
-    kind=tk.StringVar(value='재무상태표');ttk.Label(toolbar,textvariable=kind).pack(side='left')
+    bar.addWidget(year_box._q,0,tk.C.Qt.AlignmentFlag.AlignVCenter);year_box._q.show();year_box._q.setAccessibleName('부속명세서 회계연도')
+    kind=tk.StringVar(value='재무상태표')
+    def open_current():
+        from qt_ui import messagebox
+        index=tabs.currentIndex()
+        if index<0:return
+        category,name=entries[index]
+        try:
+            with connect(SOURCES[category]) as connection:
+                row=connection.execute('SELECT filename FROM workbooks WHERE fiscal_year=?',(year.get(),)).fetchone()
+            if row is None:raise ValueError('선택 연도의 원본 파일이 없습니다.')
+            source=DATA/'originals'/Path(row[0]).name
+            if not source.is_file():raise FileNotFoundError(source.name)
+            if open_file:open_file(source)
+            else:
+                from app import open_result_file
+                open_result_file(source)
+        except Exception as error:messagebox.showerror('현재 시트 원본 열기',str(error),parent=window)
+    original=tk.W.QPushButton('현재시트열기');original.setAccessibleName('현재시트열기');original.clicked.connect(open_current)
+    bar.addWidget(original,0,tk.C.Qt.AlignmentFlag.AlignVCenter);bar.addStretch()
     tab_host=ttk.Frame(body);tab_host.pack(fill='x',pady=(0,8))
     tab_layout=tk.W.QVBoxLayout(tab_host._q);tab_layout.setContentsMargins(0,0,0,0)
-    tabs=tk.W.QTabBar();tabs.setAccessibleName('부속명세서 시트');tabs.setShape(tk.W.QTabBar.Shape.RoundedNorth)
+    tabs=tk.W.QTabBar();tabs.setObjectName('AppendixSheetTabs');tabs.setAccessibleName('부속명세서 시트');tabs.setShape(tk.W.QTabBar.Shape.RoundedNorth)
     tabs.setExpanding(False);tabs.setUsesScrollButtons(True);tabs.setMinimumWidth(0)
     tabs.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Fixed);tab_layout.addWidget(tabs)
     entries=[(category,name) for category in SOURCES for name in list_sheets(category,year.get())]
@@ -52,19 +71,20 @@ def open_appendix_view(parent,center):
     view.setAlternatingRowColors(True);view.setShowGrid(True);view.setWordWrap(False)
     view.setTextElideMode(tk.C.Qt.TextElideMode.ElideRight)
     view.setVerticalScrollMode(tk.W.QAbstractItemView.ScrollMode.ScrollPerPixel)
-    jobs=Jobs(window,status,show_loading=False);jobs.controls=[tab_host,year_box]
+    jobs=Jobs(window,status);jobs.controls=[tab_host,year_box]
     window._appendix_table=view;window._appendix_model=model
     window._appendix_tabs=tabs;window._appendix_sheet_entries=entries
     window._appendix_year=year_box
 
     def fit(event=None):
         for column,header in enumerate(model.sheet['headers']):
+            fit_text=any(label in header for label in ('내용','구분'))
             width=max(120,min(280,tk.G.QFontMetrics(view.font()).horizontalAdvance(header)+24))
             for row in range(model.rowCount()):
                 index=model.index(row,column);value=index.data(tk.C.Qt.ItemDataRole.UserRole)
                 font=index.data(tk.C.Qt.ItemDataRole.FontRole)
                 measured=tk.G.QFontMetrics(font).horizontalAdvance(display_value(value))+20
-                width=max(width,measured if isinstance(value,(int,float)) else min(280,measured))
+                width=max(width,measured if fit_text or isinstance(value,(int,float)) else min(280,measured))
             view.setColumnWidth(column,width)
         view.verticalHeader().setDefaultSectionSize(max(28,tk.G.QFontMetrics(view.font()).height()+8))
         view.viewport().update()
@@ -73,7 +93,9 @@ def open_appendix_view(parent,center):
         if jobs.busy or index<0:return
         category,name=entries[index];kind.set(category);requested_year=year.get()
         def display(sheet):
-            model.replace(sheet);fit()
+            view.clearSpans();model.replace(sheet)
+            for row,start,span,label in sheet.get('spans',[]):view.setSpan(row,start,1,span)
+            fit()
             status.set(f'{requested_year}년 · {category} · {name} · {model.rowCount():,}건')
         jobs.run(lambda:load_sheet(SOURCES[category],name,requested_year),display)
     def change_year(event=None):
@@ -84,7 +106,7 @@ def open_appendix_view(parent,center):
         for category,name in entries:
             index=tabs.addTab(name);tabs.setTabToolTip(index,category+' · '+name)
         tabs.blockSignals(False)
-        model.replace({'headers':[],'records':[]})
+        view.clearSpans();model.replace({'headers':[],'records':[]})
         if entries:change_sheet(0)
         else:status.set('선택 연도의 자료가 없습니다.')
     year_box.bind('<<ComboboxSelected>>',change_year)

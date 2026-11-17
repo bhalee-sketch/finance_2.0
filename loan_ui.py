@@ -53,6 +53,8 @@ def open_loans(parent,desktop,center,open_file):
     status_label.pack(anchor='w',pady=(0,6))
     footer.bind('<Configure>',lambda e:status_label.configure(wraplength=max(200,e.width-10)))
     messages=queue.Queue();busy=False
+    from loading_ui import watch_loading
+    watch_loading(window,status,lambda:busy)
     progress=ttk.Progressbar(footer,mode='indeterminate');progress.pack(fill='x',pady=4)
     def close():
         if not busy:window.destroy()

@@ -64,7 +64,7 @@ def position(root,w,h,x,y):
     else:root.geometry(f'{w}x{h}{x:+d}{y:+d}')
 
 
-DEFAULTS={'opacity':85, 'size':100, 'text_scale':110, 'hover':True, 'topmost':True, 'theme':'light', 'font':'Paperlogy', 'chart_font':'', 'numeric_font':'', 'lock_position':False, 'view_mode':'workspace'}
+DEFAULTS={'opacity':85, 'size':100, 'text_scale':110, 'text_sizes':{}, 'hover':True, 'topmost':True, 'theme':'light', 'font':'Paperlogy', 'chart_font':'', 'numeric_font':'', 'lock_position':False, 'view_mode':'workspace'}
 
 
 def load_preferences(path):
@@ -75,6 +75,8 @@ def load_preferences(path):
         for key,low,high in (('opacity',30,100),('size',75,130),('text_scale',80,150)):
             value=data.get(key)
             if isinstance(value,(int,float)) and low<=value<=high:result[key]=int(value)
+        sizes=data.get('text_sizes',{})
+        if isinstance(sizes,dict):result['text_sizes']={key:float(value) for key,value in sizes.items() if key in ('system','description','data') and isinstance(value,(int,float)) and 8<=value<=28}
         for key in ('hover','topmost','lock_position'):
             if isinstance(data.get(key),bool):result[key]=data[key]
         if data.get('theme') in ('dark','light'):result['theme']=data['theme']
@@ -109,7 +111,7 @@ class Launcher:
     def __init__(self,root,groups,settings_path):
         self.settings_path=Path(settings_path);self.preferences=load_preferences(settings_path)
         from appearance import set_appearance
-        set_appearance(root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110))
+        set_appearance(root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110),self.preferences.get('text_sizes'))
         self.settings_window=None
         self.root=root;self.groups=groups;self.cards=[card for _,cards in groups for card in cards];self.compact=self.preferences.get('view_mode')!='workspace';self.workspace=None;self.normal_geometry=None;self.active_group=None
         root.overrideredirect(True);root.attributes('-topmost',self.preferences['topmost']);root.attributes('-alpha',self.preferences['opacity']/100)
@@ -315,11 +317,12 @@ class Launcher:
         from ui_theme import dark_titlebar
         dark_titlebar(window)
         body=ttk.Frame(window,padding=20);body.pack(fill='both',expand=True)
+        actions=ttk.Frame(body);actions.pack(side='bottom',fill='x',pady=(14,0))
         ttk.Label(body,text='화면 및 사용자 설정',style='Section.TLabel').pack(anchor='w')
         settings_content=ttk.Frame(body);settings_content.pack(fill='both',expand=True)
         layout=tk.W.QHBoxLayout(settings_content._q);layout.setContentsMargins(0,0,0,0);layout.setSpacing(20)
         sidebar=ttk.Frame(settings_content);sidebar._q.setFixedWidth(140);layout.addWidget(sidebar._q)
-        pages=ttk.Frame(settings_content);pages._q.setMinimumSize(460,390);layout.addWidget(pages._q,1)
+        pages=ttk.Frame(settings_content);pages._q.setMinimumSize(460,390);scroll=tk.W.QScrollArea();scroll.setWidgetResizable(True);scroll.setFrameShape(tk.W.QFrame.Shape.NoFrame);scroll.setWidget(pages._q);layout.addWidget(scroll,1)
         sidebar._q.show();pages._q.show()
         sections={name:ttk.Frame(pages) for name in ('화면·글꼴','창·플로팅')}
         selected_section=tk.StringVar(value='화면·글꼴')
@@ -346,6 +349,7 @@ class Launcher:
             if name and name not in registered:registered.append(name)
         registered=sorted(set(registered),key=str.casefold)
         text_scale=tk.DoubleVar(value=before.get('text_scale',110))
+        text_sizes={key:tk.DoubleVar(value=before.get('text_sizes',{}).get(key,before.get('text_scale',110)/10)) for key in ('system','description','data')}
         labels=[tk.StringVar(),tk.StringVar(),tk.StringVar()]
         preview_job=None;finishing=False
         def apply_preview():
@@ -354,9 +358,9 @@ class Launcher:
             previous_size=self.preferences['size']
             if self.compact and locked.get() and not self.preferences.get('lock_position',False):
                 self.preferences['geometry']=[self.root.winfo_width(),self.root.winfo_height(),self.root.winfo_x(),self.root.winfo_y()]
-            self.preferences.update(text_scale=round(text_scale.get()),numeric_font='' if numeric_font.get()=='화면 글꼴과 동일' else numeric_font.get(),registered_fonts=list(registered),opacity=round(opacity.get()),size=round(size.get()),hover=hover.get(),topmost=topmost.get(),lock_position=locked.get(),theme='light' if theme.get()=='화이트' else 'dark',font=font.get(),chart_font='' if chart_font.get()=='화면 글꼴과 동일' else chart_font.get())
+            self.preferences.update(text_sizes={key:var.get() for key,var in text_sizes.items()},text_scale=round(text_sizes['system'].get()*10),numeric_font='' if numeric_font.get()=='화면 글꼴과 동일' else numeric_font.get(),registered_fonts=list(registered),opacity=round(opacity.get()),size=round(size.get()),hover=hover.get(),topmost=topmost.get(),lock_position=locked.get(),theme='light' if theme.get()=='화이트' else 'dark',font=font.get(),chart_font='' if chart_font.get()=='화면 글꼴과 동일' else chart_font.get())
             from appearance import set_appearance
-            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110))
+            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110),self.preferences.get('text_sizes'))
             if previous_size!=self.preferences['size']:
                 if not self.preferences.get('lock_position',False):self.preferences.pop('geometry',None)
                 self.preferences.pop('page_heights',None)
@@ -404,12 +408,22 @@ class Launcher:
                 preview()
             open_font_picker(window,added)
         ttk.Button(appearance_panel,text='글꼴 추가',command=register_font).pack(anchor='w',pady=8)
-        for var,label,low,high in ((opacity,labels[0],30,100),(size,labels[1],75,130),(text_scale,labels[2],80,150)):
-            panel=window_panel if var is opacity else appearance_panel
-            ttk.Label(panel,textvariable=label).pack(anchor='w',pady=(12,4))
-            slider=ttk.Scale(panel,variable=var,from_=low,to=high,length=360,command=preview)
-            slider.pack(fill='x')
-            if var is text_scale:slider._q.setAccessibleName('텍스트 크기')
+        def number_setting(panel,caption,var,low,high,suffix):
+            row=ttk.Frame(panel);row.pack(fill='x',pady=5)
+            layout=tk.W.QHBoxLayout(row._q);layout.setContentsMargins(0,0,0,0)
+            layout.addWidget(tk.W.QLabel(caption));layout.addStretch()
+            control=tk.W.QDoubleSpinBox();control.setRange(low,high);control.setDecimals(0 if suffix==' %' else 1);control.setSingleStep(1 if suffix==' %' else .5)
+            control.setSuffix(suffix);control.setValue(var.get());control.setAccessibleName(caption);control.setMinimumWidth(115);control.setSizePolicy(tk.W.QSizePolicy.Policy.Minimum,tk.W.QSizePolicy.Policy.Fixed);control.setKeyboardTracking(False)
+            layout.addWidget(control)
+            def changed(value):var.set(value);preview()
+            control.valueChanged.connect(changed)
+            def update(*args):
+                with tk.C.QSignalBlocker(control):control.setValue(var.get())
+            var.trace_add('write',update)
+        number_setting(window_panel,'투명도',opacity,30,100,' %')
+        number_setting(appearance_panel,'메뉴 크기',size,75,130,' %')
+        for key,caption in [('system','시스템 제목 및 메뉴'),('description','메뉴 안 설명'),('data','실제 데이터')]:
+            number_setting(appearance_panel,caption,text_sizes[key],8,28,' pt')
         ttk.Label(window_panel,text='투명도는 투명화 모드에서 적용됩니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
         ttk.Checkbutton(window_panel,text='마우스를 올리면 선명하게 표시',variable=hover,command=preview).pack(anchor='w')
         ttk.Checkbutton(window_panel,text='일반 메뉴를 항상 맨 위에 표시 (플로팅은 항상 위)',variable=topmost,command=preview).pack(anchor='w',pady=(6,0))
@@ -431,18 +445,17 @@ class Launcher:
                     if key in self.preferences:before[key]=self.preferences[key]
                 self.preferences=before
             from appearance import set_appearance
-            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110))
+            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110),self.preferences.get('text_sizes'))
             window.destroy();self.settings_window=None
             self.root.attributes('-topmost',self.floating or self.preferences['topmost'])
             if applied_size!=self.preferences['size'] or applied_mode!=self.preferences.get('view_mode','compact'):
                 self.render();self.place()
             self.fade() if self.compact else None
         def reset():
-            view_mode.set(DEFAULTS['view_mode']);opacity.set(DEFAULTS['opacity']);size.set(DEFAULTS['size']);text_scale.set(DEFAULTS['text_scale']);hover.set(DEFAULTS['hover']);topmost.set(DEFAULTS['topmost']);locked.set(False);theme.set('화이트' if DEFAULTS['theme']=='light' else '다크');font.set(DEFAULTS['font']);chart_font.set('화면 글꼴과 동일');numeric_font.set('화면 글꼴과 동일');preview()
-        actions=ttk.Frame(body);actions.pack(fill='x',pady=(18,0))
+            [var.set(11) for var in text_sizes.values()];view_mode.set(DEFAULTS['view_mode']);opacity.set(DEFAULTS['opacity']);size.set(DEFAULTS['size']);text_scale.set(DEFAULTS['text_scale']);hover.set(DEFAULTS['hover']);topmost.set(DEFAULTS['topmost']);locked.set(False);theme.set('화이트' if DEFAULTS['theme']=='light' else '다크');font.set(DEFAULTS['font']);chart_font.set('화면 글꼴과 동일');numeric_font.set('화면 글꼴과 동일');preview()
         ttk.Button(actions,text='초기값',command=reset).pack(side='left')
-        ttk.Button(actions,text='저장',command=lambda:finish(True)).pack(side='right')
-        ttk.Button(actions,text='취소',command=lambda:finish(False)).pack(side='right',padx=8)
+        ttk.Button(actions,text='취소',command=lambda:finish(False)).pack(side='left',padx=(18,0))
+        ttk.Button(actions,text='저장',command=lambda:finish(True),style='Primary.TButton').pack(side='right')
         window.protocol('WM_DELETE_WINDOW',lambda:finish(False));window.bind('<Escape>',lambda e:finish(False))
         apply_preview();window.update_idletasks()
         left,top,right,bottom=work_area(self.root)

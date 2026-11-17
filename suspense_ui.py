@@ -309,6 +309,8 @@ def open_suspense(parent,desktop,center,open_file):
             t=byid[identity];lines+=['',f'{t.row_id} / {t.sheet} {t.row}행',f'{t.voucher} | {t.day} | {t.department} | {t.counterparty}',f'차변 {t.debit:,} / 대변 {t.credit:,} / 잔여 {result["validation"]["residual"][identity]}',f'계좌 {t.account} / 회계 {t.unit} / 대상 월 {t.months} / 기간 {t.period}',t.description,'원본: '+repr(t.raw)]
         box.insert('1.0','\n'.join(lines));box.configure(state='disabled')
     for tree in trees.values():tree.bind('<Double-1>',detail)
+    from loading_ui import watch_loading
+    watch_loading(window,status,lambda:busy)
     def launch(work,done):
         nonlocal busy
         if busy:return

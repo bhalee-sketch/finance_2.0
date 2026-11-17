@@ -7,7 +7,8 @@ from qt_ui import ttk,messagebox
 from finance_ui import shell,fill,saved,target_file,compact_combo,content_widths,apply_widths
 from statement_ui import table
 from statement_catalog import amount_text
-from audit_review import (load_sources,AccountOrder,matches,review_values,review_years,select_reviews,
+from analysis_runtime import load_audit_sources as load_sources,program_ledger_paths
+from audit_review import (AccountOrder,matches,review_values,review_years,select_reviews,
                           export_review,AUDIT_HEADERS,CHECK_STATES,AUDIT_VISIBLE_HEADERS,visible_review_values)
 from ui_theme import dark_titlebar
 
@@ -101,8 +102,7 @@ def open_audit(parent,desktop,center,open_file):
     def refresh():
         nonlocal data,selected
         if jobs.busy:return
-        from finance_data import discover_ledger_years
-        try:available=discover_ledger_years(settings/'lodges')
+        try:available=program_ledger_paths(settings)
         except ValueError as e:messagebox.showerror('원장 확인',str(e),parent=window);return
         if source_year.get() not in available:source_year.set(next(iter(available),''))
         data=None;selected=[];tree.delete(*tree.get_children());year_box.configure(values=list(available))

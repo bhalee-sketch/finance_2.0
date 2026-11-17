@@ -1,5 +1,6 @@
 """Four-part desktop shell: top tabs, list sidebar, work area and status bar."""
 from pathlib import Path
+import re
 import qt_ui as tk
 from qt_ui import ttk
 
@@ -35,7 +36,7 @@ class Workspace:
         self.top_tabs.setMinimumWidth(0)
         self.top_tabs.setSizePolicy(W.QSizePolicy.Policy.Ignored,W.QSizePolicy.Policy.Fixed)
         self.top_tabs.setElideMode(C.Qt.TextElideMode.ElideRight);self.top_tabs.setTabsClosable(False)
-        self.top_tabs.setDocumentMode(True);self.top_tabs.setDrawBase(False);row.addWidget(self.top_tabs,1)
+        self.top_tabs.setDocumentMode(True);self.top_tabs.setDrawBase(False);row.addWidget(self.top_tabs,1,C.Qt.AlignmentFlag.AlignBottom)
         self.local_badge=W.QLabel('●  로컬 실행');self.local_badge.setObjectName('WorkspaceLocalBadge')
         self.local_badge.setSizePolicy(W.QSizePolicy.Policy.Fixed,W.QSizePolicy.Policy.Fixed);row.addWidget(self.local_badge)
         for text,tip,command in [('플로팅','작은 플로팅 메뉴로 전환',launcher.toggle_float),('설정','화면 · 글꼴 · 창 설정',launcher.customize)]:
@@ -46,17 +47,19 @@ class Workspace:
         outer.addWidget(top)
 
         self.layout=ttk.Panedwindow(self.frame,orient='horizontal')
-        self.layout._q.setObjectName('WorkspaceSplit');self.layout._q.setChildrenCollapsible(False)
+        self.layout._q.setObjectName('WorkspaceSplit');self.layout._q.setHandleWidth(2);self.layout._q.setChildrenCollapsible(False)
         outer.addWidget(self.layout._q,1);self.layout._q.show()
         self.side=W.QFrame();self.side.setObjectName('WorkspaceSidebar');self.side.setFixedWidth(200)
-        side_layout=W.QVBoxLayout(self.side);side_layout.setContentsMargins(12,14,12,10);side_layout.setSpacing(8)
+        side_layout=W.QVBoxLayout(self.side);side_layout.setContentsMargins(8,10,3,8);side_layout.setSpacing(8)
         caption=W.QLabel('Work Space');caption.setObjectName('WorkspaceSection');side_layout.addWidget(caption)
         self.nav=ttk.NavigationTree(self.frame,show='tree',selectmode='browse')
         self.nav._q.setObjectName('WorkspaceNavigation');self.nav._q.setMinimumWidth(0);self.nav._q.setRootIsDecorated(False);self.nav._q.setItemsExpandable(False);self.nav._q.setExpandsOnDoubleClick(False);self.nav._q.setIndentation(12)
         self.nav._q.setItemDelegate(SidebarDelegate(self.nav._q))
         side_layout.addWidget(self.nav._q,1);self.nav._q.show()
         for gi,(name,cards) in enumerate(launcher.groups):
-            group=self.nav.insert('','end',iid=f'g{gi}',text=name,open=True)
+            group=self.nav.insert('','end',iid=f'g{gi}',text=re.sub(r'^\d+\.\s*','',name),open=True)
+            icons=('statements','analysis','tools','funds','merge')
+            if gi<len(icons):self.nav._nodes[group].setIcon(G.QIcon(str(Path(__file__).resolve().parent/'assets'/('menu-'+icons[gi]+'.svg'))))
             for ci,(label,command) in enumerate(cards):
                 key=f'g{gi}c{ci}';title=label.split('\n')[0]
                 self.nav.insert(group,'end',iid=key,text=title)
@@ -65,7 +68,7 @@ class Workspace:
 
         self.notebook=ttk.Notebook(self.frame)
         self.notebook._q.setObjectName('WorkspacePages');self.notebook._q.tabBar().hide()
-        self.layout._q.addWidget(self.notebook._q);self.notebook._q.show();self.layout._q.setStretchFactor(1,1);self.layout._q.setSizes([235,1100])
+        self.layout._q.addWidget(self.notebook._q);self.notebook._q.show();self.layout._q.setStretchFactor(0,0);self.layout._q.setStretchFactor(1,1);self.layout._q.setSizes([200,1100])
         self.home=ttk.Frame(self.notebook);self.home._q.setObjectName('WorkspaceHomePanel')
         home_layout=W.QVBoxLayout(self.home._q);home_layout.setContentsMargins(0,0,0,0)
         home_layout.addStretch()
@@ -86,7 +89,7 @@ class Workspace:
         self.nav._q.clicked.connect(lambda _:self.selected())
         self.nav._q.activated.connect(lambda _:self.selected())
         self.shortcuts=[]
-        for keys,command in [('Ctrl+Tab',lambda:self.cycle_tab(1)),('Ctrl+Shift+Tab',lambda:self.cycle_tab(-1)),('Ctrl+W',self.close_tab)]:
+        for keys,command in [('Ctrl+Tab',lambda:self.cycle_tab(1)),('Ctrl+Shift+Tab',lambda:self.cycle_tab(-1)),('Ctrl+W',self.close_tab),('Home',self.go_home)]:
             shortcut=G.QShortcut(G.QKeySequence(keys),self.frame._q);shortcut.activated.connect(command);self.shortcuts.append(shortcut)
         self.notebook.bind('<<NotebookTabChanged>>',lambda event:self.sync_tabs())
         self.top_tabs.currentChanged.connect(self.activate_top_tab)
@@ -107,7 +110,7 @@ class Workspace:
                 for path in self.tab_paths:
                     title=self.notebook.tab(path,'text');index=self.top_tabs.addTab(title)
                     self.top_tabs.setTabToolTip(index,title)
-                    close=W.QToolButton();close.setText('×');close.setToolTip(title+' 닫기');close.setFixedSize(18,18)
+                    close=W.QToolButton();close.setText('×');close.setToolTip(title+' 닫기');close.setObjectName('WorkspaceTabClose');close.setFixedSize(22,22);close.setIcon(G.QIcon(str(Path(__file__).resolve().parent/'assets'/'close.svg')));close.setIconSize(C.QSize(16,16));close.setToolButtonStyle(C.Qt.ToolButtonStyle.ToolButtonIconOnly)
                     close.clicked.connect(lambda checked=False,p=path:self.close_index(self.tab_paths.index(p)) if p in self.tab_paths else None)
                     self.top_tabs.setTabButton(index,W.QTabBar.ButtonPosition.RightSide,close)
             if current in self.tab_paths:self.top_tabs.setCurrentIndex(self.tab_paths.index(current))
@@ -163,6 +166,24 @@ class Workspace:
     def go_home(self):
         if self.root.grab_current() is not None:return
         self.notebook.select(self.home)
+        pending=list(self.tabs.values())
+        def close_all():
+            if not self.frame.winfo_exists():return
+            remaining=[]
+            for window in pending:
+                if not window.winfo_exists():continue
+                callback=self.closing.get(str(window))
+                if callback:callback()
+                else:window.destroy()
+                if window.winfo_exists():remaining.append(window)
+                else:
+                    if tk.isValid(window._q):self.notebook.forget(window)
+                    self.tabs={key:w for key,w in self.tabs.items() if w is not window};self.closing.pop(str(window),None)
+            pending[:]=remaining;self.sync_tabs()
+            if pending:
+                self.status.set('홈 · 처리 중인 작업은 완료 후 자동으로 닫습니다.')
+                self.root.after(250,close_all)
+        close_all()
 
     def cycle_tab(self,offset):
         if self.root.grab_current() is not None:return

@@ -71,6 +71,8 @@ def open_hometax(parent,root_path,initial_year,initial_month,center,open_file):
     status=tk.StringVar(value='실제 홈택스 화면에서의 첫 실행 확인이 필요합니다. 기존 자료는 덮어쓰지 않습니다.')
     ttk.Label(body,textvariable=status,wraplength=800,style='Muted.TLabel').pack(fill='x',pady=10)
     commands=queue.Queue();messages=queue.Queue();stop=threading.Event();worker=None;busy=False;ready=False;closing=False;auto_pending=False
+    from loading_ui import watch_loading
+    watch_loading(window,status,lambda:busy)
     def send(kind,value=None):messages.put((kind,value))
     def clear_commands():
         removed=False

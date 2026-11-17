@@ -98,9 +98,11 @@ class Appearance:
         for key,value in options.items():
             if key in COLOR_OPTIONS:out[key]=color(value,self.theme)
         return out
-    def update(self,theme,font,chart_font=None,numeric_font=None,text_scale=110):
+    def update(self,theme,font,chart_font=None,numeric_font=None,text_scale=110,text_sizes=None):
         text_scale=max(80,min(150,int(text_scale)))
-        settings=(text_scale,theme,font,chart_font if chart_font is not None else self.chart_requested,numeric_font if numeric_font is not None else self.numeric_requested)
+        self.text_sizes={key:max(8,min(28,float(text_sizes.get(key,text_scale/10)))) for key in ('system','description','data')} if text_sizes else {}
+        if self.text_sizes:text_scale=self.text_sizes['system']*10
+        settings=(tuple(sorted(self.text_sizes.items())),text_scale,theme,font,chart_font if chart_font is not None else self.chart_requested,numeric_font if numeric_font is not None else self.numeric_requested)
         if self.applied and getattr(self,'_last_settings',None)==settings:return
         self.theme=theme if theme in ('dark','light') else 'dark';self.requested=font
         self.family=choose_font(font,tkfont.families(self.root))
@@ -115,7 +117,7 @@ class Appearance:
         previous_scale=tk.application().property('textScale') or 100
         previous_fonts={native:tk.G.QFont(native.font()) for native in tk.application().allWidgets()}
         tk.application().setProperty('textScale',text_scale)
-        tk.application().setStyleSheet(qt_stylesheet(self.theme,text_scale))
+        tk.application().setStyleSheet(qt_stylesheet(self.theme,text_scale,self.text_sizes))
         default_font=tk.Font(font=(self.family,10)).q
         default_font.setFamilies([self.family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif'])
         tk.application().setFont(default_font)
@@ -146,7 +148,7 @@ def initialize(root):
     return root._root()._appearance
 
 
-def set_appearance(root,theme,font,chart_font=None,numeric_font=None,text_scale=110):
+def set_appearance(root,theme,font,chart_font=None,numeric_font=None,text_scale=110,text_sizes=None):
     appearance=initialize(root)
-    appearance.update(theme,font,chart_font,numeric_font,text_scale)
+    appearance.update(theme,font,chart_font,numeric_font,text_scale,text_sizes)
     return appearance.family

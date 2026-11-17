@@ -15,10 +15,12 @@ def open_macro(parent,desktop,center,open_file,kind):
     center(window,760,min(650,window.winfo_screenheight()-90))
     frame=ttk.Frame(window,padding=20);frame.pack(fill='both',expand=True)
     source=None;busy=False;messages=queue.Queue()
+    from loading_ui import watch_loading
     catalog={};account_unit=tk.StringVar()
     catalog_path=desktop()/'settings'/'accountsforfinancecode.xlsx'
     status=tk.StringVar(value='원자료 Excel 파일을 선택하세요.')
     window._work_status=status
+    watch_loading(window,status,lambda:busy)
     filename=tk.StringVar(value='선택한 자료 없음');mode=tk.StringVar(value='교비비등록금');exclude=tk.BooleanVar(value=False)
     footer=ttk.Frame(frame);footer.pack(side='bottom',fill='x',pady=(12,0))
     ttk.Label(footer,textvariable=status,wraplength=700,style='Muted.TLabel').pack(anchor='w',pady=8)

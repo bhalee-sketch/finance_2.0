@@ -49,6 +49,9 @@ class AccountFileTests(unittest.TestCase):
                 self.assertEqual(set(folder.iterdir()),{cms,school})
                 with patch('result_paths.desktop_dir',return_value=folder):
                     next(button for button in buttons if button.text()=='엑셀로 열기').click()
+                deadline=time.monotonic()+5
+                while not opener.called and time.monotonic()<deadline:
+                    q.application().processEvents();time.sleep(.01)
                 opener.assert_called_once();output=Path(opener.call_args.args[0]);self.assertTrue(output.exists())
                 result=load_workbook(output);self.assertEqual(result['검증결과'].max_row,4);result.close()
                 self.assertEqual((cms.read_bytes(),school.read_bytes()),originals)

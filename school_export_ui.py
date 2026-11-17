@@ -36,6 +36,8 @@ def open_school_export(parent, root_path, initial_year, initial_month, center):
     status = tk.StringVar(value='학사 창을 찾고 있습니다…')
     ttk.Label(body, textvariable=status, wraplength=810).pack(anchor='w', pady=8)
     stop = threading.Event(); messages = queue.Queue(); busy = True; closing = False
+    from loading_ui import watch_loading
+    watch_loading(window,status,lambda:busy)
     actions = ttk.Frame(body); actions.pack(fill='x')
     cancel = ttk.Button(actions, text='중단', command=stop.set); cancel.pack(side='left')
     def open_folder():

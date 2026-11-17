@@ -38,7 +38,11 @@ class WorkflowTests(unittest.TestCase):
             open_statement_verify(self.root,lambda:self.folder,lambda *a:None,self.opened.append,True)
             w=self.window()
             self.wait(lambda:'저장 자료를 연결' in w._work_status.get())
-            self.click(w,'검증 · 결과 저장')
+            self.click(w,'검증 실행')
+            self.wait(lambda:'건 중 일치' in w._work_status.get())
+            self.assertFalse(self.opened)
+            self.assertFalse((self.folder/'result.xlsx').exists())
+            self.click(w,'엑셀로 열기')
             self.wait(lambda:bool(self.opened))
         book=load_workbook(self.opened[0]);self.assertGreater(book.active.max_row,10)
         results=[r[5].value for r in list(book.active)[1:]]
@@ -66,6 +70,9 @@ class WorkflowTests(unittest.TestCase):
             w=self.window();self.wait(lambda:'저장된 원장 없음' in [x.text() for x in w._q.findChildren(q.W.QLabel)])
         with patch.object(q.filedialog,'askopenfilename',return_value=str(p)):
             self.click(w,'원장 파일 선택')
+        self.wait(lambda:w._work_status.get().startswith('원장 준비 완료'))
+        self.assertEqual(w._ledger_model.rowCount(),0)
+        self.click(w,'조회')
         self.wait(lambda:w._work_status.get().startswith('조회 완료'))
         labels=[x.text() for x in w._q.findChildren(q.W.QLabel)]
         self.assertTrue(any('차변 1,234원' in x and '1건' in x for x in labels),labels)

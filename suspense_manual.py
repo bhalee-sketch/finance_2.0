@@ -124,6 +124,8 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
         tree._q.setProperty('compactRows',True)
         from suspense_table import configure_detail_table
         configure_detail_table(tree)
+        from checkbox_drag import CheckboxDrag
+        tree._checkbox_drag=CheckboxDrag(tree._q)
         tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         def fit(event=None,t=tree):
             available=max(1,t._q.viewport().width())

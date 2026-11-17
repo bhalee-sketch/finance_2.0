@@ -53,6 +53,39 @@ class SuspenseMatchingTests(unittest.TestCase):
             self.assertEqual(saved[0]['validation']['residual']['2'],(0,50))
         finally:root.destroy()
 
+    def test_drag_checkboxes_selects_and_clears_ranges_on_each_side(self):
+        from PySide6.QtTest import QTest
+        root=q.Tk();root.geometry('1200x800')
+        rows=[tx(i,'D',100) for i in range(1,6)]+[tx(i,'C',100) for i in range(6,11)]
+        result={'ledger':ledger(rows),'groups':[],'validation':validate(rows,[]),'history':[]}
+        try:
+            dialog=open_match(root,result,{},lambda w,x,y:w.geometry(f'{x}x{y}'),lambda _:None)
+            q.application().processEvents()
+            def check(view,row):return view.indexWidget(view.model().index(row,0)).findChild(q.W.QCheckBox)
+            def drag(view,start,end):
+                box=check(view,start)
+                QTest.mousePress(box,q.C.Qt.MouseButton.LeftButton,pos=box.rect().center())
+                target=view.visualRect(view.model().index(end,0)).center()
+                QTest.mouseMove(view.viewport(),target)
+                QTest.mouseRelease(view.viewport(),q.C.Qt.MouseButton.LeftButton,pos=target)
+                q.application().processEvents()
+            debit=dialog._match_trees['D']._q;credit=dialog._match_trees['C']._q
+            drag(debit,0,3)
+            self.assertEqual([check(debit,row).isChecked() for row in range(5)],[True,True,True,True,False])
+            self.assertIn('선택 차변 잔액 400원',dialog._match_totals.get())
+            drag(credit,4,1)
+            self.assertEqual([check(credit,row).isChecked() for row in range(5)],[False,True,True,True,True])
+            button=next(b for b in dialog._q.findChildren(q.W.QPushButton) if b.text()=='매칭하기')
+            self.assertTrue(button.isEnabled())
+            # Start on a checked box to clear the whole dragged range.
+            drag(debit,3,1)
+            self.assertEqual([check(debit,row).isChecked() for row in range(5)],[True,False,False,False,False])
+            # A normal click still toggles a single checkbox.
+            QTest.mouseClick(check(debit,0),q.C.Qt.MouseButton.LeftButton)
+            self.assertFalse(check(debit,0).isChecked())
+            self.assertFalse(button.isEnabled())
+        finally:root.destroy()
+
     def test_main_actions_share_filter_row_and_no_stop(self):
         root=q.Tk()
         try:

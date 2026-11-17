@@ -42,19 +42,7 @@ def export_appendix(result,path):
     w.save(path);w.close();return path
 
 
-def center_loading_window(loading,owner):
-    """Size the dialog explicitly before centering over an embedded or standalone view."""
-    loading.update_idletasks()
-    rect=owner._q.rect()
-    center=owner._q.mapToGlobal(rect.center())
-    screen=tk.application().screenAt(center) or owner._q.screen()
-    available=screen.availableGeometry()
-    width=min(max(420,loading.winfo_reqwidth()+16),available.width()-24)
-    height=min(max(170,loading.winfo_reqheight()+16),available.height()-24)
-    x=max(available.left()+12,min(center.x()-width//2,available.right()-width-11))
-    y=max(available.top()+12,min(center.y()-height//2,available.bottom()-height-11))
-    loading.geometry(f'{width}x{height}{x:+d}{y:+d}')
-    loading._q.setFixedSize(width,height)
+from loading_ui import center_loading_window,LoadingIndicator
 
 
 class Jobs:
@@ -69,20 +57,8 @@ class Jobs:
         self.states=[(widget,widget.cget('state')) for widget in self.controls]
         for widget,_ in self.states:widget.configure(state='disabled')
         self.status.set('자료 처리 중…')
-        loading=None;progress=None;show_timer=None
-        def show_loading():
-            nonlocal loading,progress
-            if not self.busy or not self.window.winfo_exists():return
-            loading=tk.Toplevel(self.window,show_on_create=False);loading.title('자료 처리 중')
-            loading.transient(self.window);dark_titlebar(loading)
-            loading.protocol('WM_DELETE_WINDOW',lambda:None)
-            panel=ttk.Frame(loading,padding=24);panel.pack(fill='both',expand=True)
-            ttk.Label(panel,text='자료를 처리하고 있습니다',style='Section.TLabel').pack(anchor='w')
-            ttk.Label(panel,text='파일 크기에 따라 시간이 걸릴 수 있습니다.',style='Muted.TLabel').pack(anchor='w',pady=(8,14))
-            progress=ttk.Progressbar(panel,mode='indeterminate',length=320);progress.pack(fill='x');progress.start(12)
-            center_loading_window(loading,self.window)
-            loading.deiconify()
-        if self.show_loading:show_timer=self.window.after(250,show_loading)
+        loading=LoadingIndicator(self.window,self.status)
+        loading.start()
         def worker():
             try:self.messages.put((True,work()))
             except Exception as e:self.messages.put((False,e))
@@ -91,9 +67,7 @@ class Jobs:
             try:ok,result=self.messages.get_nowait()
             except queue.Empty:self.window.after(100,poll);return
             self.busy=False
-            if show_timer is not None:self.window.after_cancel(show_timer)
-            if progress is not None:progress.stop()
-            if loading is not None:loading.destroy()
+            loading.close()
             for widget,state in self.states:widget.configure(state=state)
             if ok:
                 try:done(result)
@@ -138,7 +112,7 @@ def open_statement_view(parent,desktop,center,open_file):
     window=tk.Toplevel(parent,show_on_create=False);window.title('재무제표 조회 · Excel 저장');dark_titlebar(window)
     center(window,min(1320,window.winfo_screenwidth()-40),min(760,window.winfo_screenheight()-90))
     frame=ttk.Frame(window,padding=12);frame.pack(fill='both',expand=True)
-    status=tk.StringVar(value='조회 화면 준비 완료 · 회계연도 자료 확인 대기');jobs=Jobs(window,status,show_loading=False)
+    status=tk.StringVar(value='조회 화면 준비 완료 · 회계연도 자료 확인 대기');jobs=Jobs(window,status)
     paths={};bundle={};source=None;year=''
     selected_year=tk.StringVar();kind=tk.StringVar(value='자금계산서');scope=tk.StringVar(value='전체');part=tk.StringVar(value='all')
     toolbar=ttk.Frame(frame);toolbar.pack(fill='x',pady=(0,8))
@@ -159,8 +133,10 @@ def open_statement_view(parent,desktop,center,open_file):
         if fit_job is not None:window.after_cancel(fit_job)
         fit_job=window.after(50,fit_columns)
     render_job=None;render_generation=0;render_states=[]
+    rendering=LoadingIndicator(window,status)
     def stop_render():
         nonlocal render_job,render_generation,render_states,fit_job
+        rendering.close()
         render_generation+=1
         if fit_job is not None:window.after_cancel(fit_job);fit_job=None
         if render_job is not None:window.after_cancel(render_job);render_job=None
@@ -174,6 +150,7 @@ def open_statement_view(parent,desktop,center,open_file):
         stop_render();generation=render_generation
         tree.delete(*tree.get_children());preferred_widths.clear()
         if not sheets:status.set('선택한 구분에 해당하는 시트가 없습니다.');return
+        rendering.start()
         sheet=sheets[0];headers=sheet['headers'];cols=[str(i) for i in range(len(headers))]
         tree.configure(columns=cols)
         metrics=tkfont.Font(font=('맑은 고딕',10,'bold'))
@@ -206,6 +183,7 @@ def open_statement_view(parent,desktop,center,open_file):
                     if widget.winfo_exists():widget.configure(state=state)
                 render_states=[]
                 status.set(f'{year}년 · {sheet["name"]} · {len(rows):,}행')
+                rendering.close()
         def append_rows():
             try:append_chunk()
             except Exception as exc:
@@ -297,8 +275,11 @@ def open_statement_view(parent,desktop,center,open_file):
     for title,full in [('현재 화면 Excel 저장',False),('연도 전체 Excel 저장',True)]:
         button=ttk.Button(actions,text=title,command=lambda all_=full:export(all_),padding=(8,7));button.pack(side='left',padx=(0,6));jobs.controls.append(button)
     def align_toolbar(event=None):
-        height=max(32,tk.G.QFontMetrics(tk.application().font()).height()+14)
-        actions._q.setContentsMargins(0,tk.G.QFontMetrics(tk.application().font()).height()+4,0,0)
+        height=max(34,tk.G.QFontMetrics(tk.application().font()).height()+18)
+        offset=tk.G.QFontMetrics(tk.application().font()).height()+8
+        actions._q.setContentsMargins(0,offset,0,4)
+        actions._q.setMinimumHeight(offset+height+4)
+        if actions._q.layout():actions._q.layout().invalidate()
         for control in (year_selector,kind_selector,scope_selector,part_selector,*[w for w in actions.winfo_children() if isinstance(w,ttk.Button)]):control._q.setFixedHeight(height)
     window.bind('<<ThemeChanged>>',align_toolbar,add='+');align_toolbar()
     legend=ttk.Frame(frame);legend.pack(fill='x',pady=(0,6))
@@ -341,7 +322,7 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
     footer=ttk.Frame(frame);footer.pack(side='bottom',fill='x',pady=(10,0))
     ttk.Label(footer,textvariable=status,wraplength=1000,style='Muted.TLabel').pack(anchor='w')
     ttk.Label(frame,text=title,style='Section.TLabel').pack(anchor='w',pady=(0,12))
-    paths=[]
+    paths=[];last_result=None;last_target=None
     if appendix:
         year_bar=ttk.Frame(frame);year_bar.pack(fill='x',pady=(0,8))
         ttk.Label(year_bar,text='회계연도').pack(side='left',padx=(0,8))
@@ -349,10 +330,12 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
         year_box=ttk.Combobox(year_bar,textvariable=selected_year,state='readonly',width=10)
         year_box.pack(side='left');jobs.controls.append(year_box)
         def connect_year(event=None):
+            nonlocal last_result,last_target
             from statement_database import discover_statements
             from appendix_view import SOURCES
             if jobs.busy:return
-            tree.delete(*tree.get_children())
+            tree.delete(*tree.get_children());last_result=None;last_target=None
+            excel.configure(state='disabled')
             for var in paths:var.set('')
             try:
                 years=discover_statements()
@@ -364,7 +347,7 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
                 year=selected_year.get()
                 sources=[years[year],attached['재무상태표'].get(year),attached['운영계산서'].get(year)]
                 for var,source in zip(paths,sources):var.set(str(source.database) if source else '')
-                status.set(f'{year}년 저장 자료를 연결했습니다. 검증 · 결과 저장을 누르세요.')
+                status.set(f'{year}년 저장 자료를 연결했습니다. 검증 실행을 누르세요.')
             except Exception as e:messagebox.showerror('자료 연결',str(e),parent=window)
         year_box.bind('<<ComboboxSelected>>',connect_year)
         refresh=ttk.Button(year_bar,text='연도 새로고침',command=connect_year);refresh.pack(side='left',padx=8);jobs.controls.append(refresh)
@@ -388,10 +371,13 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
     else:ttk.Label(frame,text='빈 금액은 0원으로 비교합니다. 차이가 있거나 시트가 없으면 확인필요로 표시합니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
     cols=['구분','과목','재무제표','비교 금액','차이','결과'] if appendix else ['과목','대학 금액','합산 금액','차이','결과','비고']
     def execute():
+        nonlocal last_result,last_target
         selected=[v.get().strip() for v in paths]
         if not selected[0] or (not appendix and not selected[1]) or (appendix and not any(selected[1:])):
             messagebox.showinfo('자료 선택','선택 연도의 저장된 재무제표와 부속명세서를 확인하세요.' if appendix else '필수 원본 파일을 선택하세요.',parent=window);return
         tree.delete(*tree.get_children());target=output_path(selected[0],title);selected_mode=modes[mode.get()]
+        if appendix:
+            last_result=None;last_target=None;excel.configure(state='disabled')
         year_to_verify=selected_year.get() if appendix else None
         def work():
             if appendix:
@@ -400,10 +386,13 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
                 with ExitStack() as stack:
                     snapshots=[str(stack.enter_context(export_source(StatementSource(Path(path),year_to_verify)))) if path else None for path in selected]
                     result=run_statement_appendix_verification('.',*snapshots)
-                export_appendix(result,target);return target,result
+                return target,result
             return build_combined_statement_verify_workbook(selected_mode,*selected,str(target))
         def done(value):
+            nonlocal last_result,last_target
             path,result=value
+            if appendix:
+                last_result=result;last_target=path;excel.configure(state='normal')
             for item in result['items']:
                 if appendix:
                     missing=item['fs_amount'] is None or item['supp_amount'] is None
@@ -414,11 +403,24 @@ def open_statement_verify(parent,desktop,center,open_file,appendix=False):
                 for index in numeric_columns:values[index]=amount_text(values[index])
                 tree.insert('','end',values=['' if v is None else v for v in values],tags=() if item['is_match'] else ('attention',))
             total=result.get('total',result.get('total_items'));matched=result.get('matched',result.get('matched_items'))
-            status.set(f'{total}건 중 일치 {matched}건 · 차이/확인필요 {total-matched}건 · {path}')
+            status.set(f'{total}건 중 일치 {matched}건 · 차이/확인필요 {total-matched}건'+(' · 엑셀로 열기에서 결과를 저장하고 열 수 있습니다.' if appendix else f' · {path}'))
+            if not appendix:
+                try:open_file(path)
+                except Exception as e:messagebox.showwarning('저장 완료 · 열기 실패',f'{path}\n{e}',parent=window)
+        jobs.run(work,done)
+    actions=ttk.Frame(frame);actions.pack(fill='x',pady=10)
+    def open_excel():
+        if last_result is None or jobs.busy:return
+        snapshot=last_result;target=last_target
+        def save():export_appendix(snapshot,target);return target
+        def opened(path):
+            status.set(f'검증 결과 저장 완료 · {path}')
             try:open_file(path)
             except Exception as e:messagebox.showwarning('저장 완료 · 열기 실패',f'{path}\n{e}',parent=window)
-        jobs.run(work,done)
-    run=ttk.Button(frame,text='검증 · 결과 저장',command=execute,style='Primary.TButton');run.pack(anchor='e',pady=10);jobs.controls.append(run)
+        jobs.run(save,opened)
+    if appendix:
+        excel=ttk.Button(actions,text='엑셀로 열기',command=open_excel,state='disabled');excel.pack(side='right',padx=(8,0));jobs.controls.append(excel)
+    run=ttk.Button(actions,text='검증 실행' if appendix else '검증 · 결과 저장',command=execute,style='Primary.TButton');run.pack(side='right');jobs.controls.append(run)
     tree=table(frame,cols)
     for index in ((2,3,4) if appendix else (1,2,3)):tree.column(cols[index],anchor='e')
     tree.column('결과',anchor='center')

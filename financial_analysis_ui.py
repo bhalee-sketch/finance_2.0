@@ -8,8 +8,9 @@ from pathlib import Path
 from finance_ui import shell,fill,target_file,saved,compact_combo,content_widths,apply_widths
 from statement_ui import table
 from statement_catalog import amount_text
-from financial_analysis import (SCOPES,DEFAULT_PRESET,ANALYSIS_HEADERS,load_history,analysis_rows,
+from financial_analysis import (SCOPES,DEFAULT_PRESET,ANALYSIS_HEADERS,analysis_rows,
     denominator,validate_preset,appendix_check,ledger_matches,export_report,trend_rows,statement_view)
+from analysis_runtime import load_analysis_history as load_history
 from statement_analysis import normalize
 from analysis_presentation import unit_label,available_units,analysis_total,trend_total,complete_sum,pie_values,expand_to_mok,multi_trend,source_total_row,expanded_composition
 
@@ -347,7 +348,8 @@ def open_financial_analysis(parent,desktop,center,open_file):
 
 
 def open_ledger_details(parent,desktop,center,open_file,year,scope,unit,path):
-    from finance_data import discover_ledger_years,load_ledger,ledger_totals,export_ledger
+    from finance_data import ledger_totals,export_ledger
+    from analysis_runtime import program_ledger_paths,load_program_ledger
     window,body,status,jobs=shell(parent,f'{year} 원장 · {path[-1]}',center)
     records=[];filtered=[];page=0;size=200
     ttk.Label(body,text=f'{year} / {scope} / {unit_label(unit)} / {" → ".join(path)}',style='Accent.TLabel').pack(anchor='w')
@@ -392,9 +394,9 @@ def open_ledger_details(parent,desktop,center,open_file,year,scope,unit,path):
         b=ttk.Button(container,text=title,command=command);b.pack(side='left',padx=4);jobs.controls.append(b)
     entry.bind('<Return>',search);tree.bind('<Double-1>',detail)
     def work():
-        sources=discover_ledger_years(desktop()/'settings'/'lodges')
-        if year not in sources:raise ValueError(f'{year}년 원장 파일이 settings/lodges에 없습니다.')
-        return [r for r in load_ledger(sources[year],with_provenance=True) if ledger_matches(r,scope,unit,path)]
+        sources=program_ledger_paths(desktop()/'settings')
+        if year not in sources:raise ValueError(f'{year}년 계정별원장 자료가 없습니다.')
+        return [r for r in load_program_ledger(sources[year],year) if ledger_matches(r,scope,unit,path)]
     def done(result):
         nonlocal records
         records=result;search();status.set('거래를 더블클릭하면 전체 적요와 원본 출처를 확인할 수 있습니다.')

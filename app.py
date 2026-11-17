@@ -157,15 +157,18 @@ def main():
         folder_actions.pack(fill='x',pady=(0,8))
         verified_workbook=None;excel_path=None
         def open_excel():
-            nonlocal excel_path
-            if verified_workbook is None or busy:return
-            try:
-                if excel_path is None or not Path(excel_path).exists():
-                    from result_paths import result_path
-                    excel_path=result_path('세금계산서 검증')
-                    verified_workbook.save(excel_path)
-                open_result_file(excel_path)
-            except (OSError,subprocess.SubprocessError) as exc:messagebox.showerror('Excel 열기',str(exc),parent=window)
+            if verified_workbook is None or busy or export_task.busy:return
+            from result_paths import result_path
+            target=excel_path or result_path('세금계산서 검증');snapshot=verified_workbook
+            def work():
+                if not Path(target).exists():snapshot.save(target)
+                return target
+            def done(path):
+                nonlocal excel_path
+                excel_path=path;status.set(f'저장 완료 · {path}')
+                try:open_result_file(path)
+                except (OSError,subprocess.SubprocessError) as exc:messagebox.showerror('Excel 열기',str(exc),parent=window)
+            export_task.run(work,done,lambda error:messagebox.showerror('Excel 저장',str(error),parent=window))
         excel_button=ttk.Button(folder_actions,text='엑셀로 열기',command=open_excel,state='disabled')
         excel_button.pack(side='right',before=button,padx=(8,0))
         ttk.Label(frame,text='월별 홈택스·학사 자료 각 4종을 준비하고, 학사 조회 기간을 선택 월과 맞춰 주세요.',wraplength=1000).pack(fill='x',pady=(6,8))
@@ -175,9 +178,13 @@ def main():
         from tax_result_view import TaxResultView,read_issue_sheets
         results=TaxResultView(frame)
         window._tax_results=results
+        from background_read import BackgroundRead
+        export_task=BackgroundRead(window,status,manage_close=False)
         messages=queue.Queue(); busy=False
+        from loading_ui import watch_loading
+        watch_loading(window,status,lambda:busy)
         def close():
-            if not busy:
+            if not busy and not export_task.busy:
                 if verified_workbook is not None:verified_workbook.close()
                 window.destroy()
         window.protocol('WM_DELETE_WINDOW',close)
@@ -197,6 +204,7 @@ def main():
                 messagebox.showerror('검증 중단',result,parent=window)
         def execute():
             nonlocal busy
+            if busy or export_task.busy:return
             months=(int(choice.get()[:-1]),) if mode.get()=='월 단위 검증' else PERIODS[choice.get()]
             try: folder=year_folder(path.get(),year.get())
             except ValueError as e:
@@ -217,29 +225,21 @@ def main():
     def suspense_view():
         from suspense_ui import open_suspense
         open_suspense(root,desktop,center_window,open_result_file)
-    def pending_menu(title):
-        window=tk.Toplevel(root,show_on_create=False)
-        window.title(title)
-        center_window(window,900,600)
-        frame=ttk.Frame(window,padding=24);frame.pack(fill='both',expand=True)
-        ttk.Label(frame,text=title,style='Section.TLabel').pack(anchor='w')
-        ttk.Label(frame,text='준비 중',style='Muted.TLabel').pack(anchor='w',pady=12)
-        window.deiconify()
-
-    def menu_item(title):
-        return (title,lambda:pending_menu(title))
-
     from appendix_view import open_appendix_view
     groups=[
         ('1. 재무제표',[
             ('재무제표 조회',lambda:open_statement_view(root,desktop,center_window,open_result_file)),
-            ('부속명세서 조회',lambda:open_appendix_view(root,center_window)),
+            ('부속명세서 조회',lambda:open_appendix_view(root,center_window,open_result_file)),
             ('계정별원장 조회',lambda:open_ledger(root,desktop,center_window,open_result_file)),
             ('합산재무제표 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file)),
             ('재무제표/부속명세서 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file,True)),
         ]),
         ('2. 분석도구',[
-            menu_item(title) for title in ('재무분석','결산검토','계정과목 검토','차입금관리','임대사항')
+            ('재무분석',lambda:open_analysis(root,desktop,center_window,open_result_file)),
+            ('결산검토',lambda:open_closing_review(root,desktop,center_window)),
+            ('계정과목 검토',lambda:open_audit(root,desktop,center_window,open_result_file)),
+            ('차입금관리',lambda:open_loans(root,desktop,center_window,open_result_file)),
+            ('임대사항',rental_view),
         ]),
         ('3. 업무도구',[
             ('세금계산서 검증',open_tax),

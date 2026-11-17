@@ -38,5 +38,20 @@ def load_sheet(database,name,year='2025'):
         headers.append(' / '.join(parts) or '항목')
     records=[{'source_row':row,'values':[expanded.get((row,column)) for column in source_columns]}
              for row in sorted(populated) if row>header_end]
+    totals={};spans=[]
+    for index,record in enumerate(records):
+        values=record['values']
+        for column,value in enumerate(values):
+            if not isinstance(value,str):continue
+            compact=re.sub(r'\s+','',value)
+            if compact!='계' and not re.search(r'(합계|소계|총계)$',compact):continue
+            totals[index]='subtotal' if compact.endswith('소계') else 'total'
+            # Span only empty label cells; never cover money or another field.
+            start=column;end=column
+            while start>0 and values[start-1] in (None,''):start-=1
+            while end+1<len(values) and values[end+1] in (None,''):end+=1
+            if end>start:spans.append((index,start,end-start+1,column))
+            break
     return {'name':name,'headers':headers,'records':records,'source_columns':source_columns,
+            'totals':totals,'spans':spans,
             'header_start':header_start,'header_end':header_end}

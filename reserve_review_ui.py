@@ -3,7 +3,8 @@ from numeric_tree import NumericTreeview
 import qt_ui as tk
 from qt_ui import ttk,messagebox
 from statement_catalog import discover_years,amount_text
-from reserve_review import load_reserves,calculate
+from reserve_review import calculate
+from analysis_runtime import load_program_reserves as load_reserves
 from finance_data import money
 
 

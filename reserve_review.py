@@ -62,7 +62,7 @@ def securities_principal(path):
     finally:book.close()
 
 
-def load_reserves(settings,year,statement):
+def load_reserves(settings,year,statement,*,ledger_loader=None):
     settings=Path(settings);values={};sources={};issues=[]
     def read(key,task,source):
         try:values[key]=task();sources[key]=source
@@ -71,9 +71,11 @@ def load_reserves(settings,year,statement):
     read('reserve_total',lambda:current_amount(record,'임의적립금',1),str(statement)+' · 전체/임의적립금(항)/당기')
     read('building_reserve',lambda:current_amount(record,'임의건축적립금',2),str(statement)+' · 전체/임의건축적립금(목)/당기')
     def transferred():
-        path=discover_ledger_years(settings/'lodges').get(str(year))
-        if path is None:raise ValueError('선택연도 원장 없음')
-        records=load_ledger(path,with_provenance=True)
+        if ledger_loader is None:
+            path=discover_ledger_years(settings/'lodges').get(str(year))
+            if path is None:raise ValueError('선택연도 원장 없음')
+            records=load_ledger(path,with_provenance=True)
+        else:path,records=ledger_loader(settings,year)
         rows=[r for r in records if normalize(r['목'])=='등록금회계전입금']
         sources['transfer_rows']=rows;sources['transfer_file']=str(path)
         # No netting or absolute value: exactly the sum of credits requested.
