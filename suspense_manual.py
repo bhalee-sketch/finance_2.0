@@ -87,54 +87,63 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
     from qt_ui import ttk,messagebox
     from statement_ui import table
     from ui_theme import dark_titlebar
-    dialog=tk.Toplevel(parent);dialog.title('미매칭 잔여 · 매칭 실행');dialog.transient(parent);dark_titlebar(dialog);center(dialog,1200,720)
+    dialog=tk.Toplevel(parent,show_on_create=False);dialog.title('매칭하기');dialog.transient(parent);dark_titlebar(dialog)
+    screen=parent._q.screen().availableGeometry()
+    center(dialog,min(1180,screen.width()-40),min(680,screen.height()-60))
     outer=ttk.Frame(dialog,padding=12);outer.pack(fill='both',expand=True)
-    ttk.Label(outer,text='왼쪽 차변(정산)과 오른쪽 대변(입금)을 선택하세요. 차변이 적으면 입금일순으로 부분정산하고 남은 금액은 유지합니다.').pack(fill='x')
-    panels=ttk.Panedwindow(outer,orient='horizontal');panels.pack(fill='both',expand=True,pady=8)
+    toolbar=ttk.Frame(outer);toolbar.pack(fill='x',pady=(0,8))
+    ttk.Label(toolbar,text='매칭하기',style='Section.TLabel').pack(side='left')
     byid={t.row_id:t for t in result['ledger']['rows']};selected=set(preselected);amounts={};trees={}
+    totals=tk.StringVar()
+    def update():
+        debit=sum(amounts[i] for i in selected if byid[i].side=='D')
+        credit=sum(amounts[i] for i in selected if byid[i].side=='C')
+        totals.set(f'선택 차변 잔액 {debit:,}원  |  선택 대변 잔액 {credit:,}원  |  매칭 후 잔액 {credit-debit:,}원')
+        save_button.configure(state='normal' if 0<debit<=credit else 'disabled')
+    def save():
+        try:updated=prepare_match(result,settings,{i:amounts[i] for i in selected},'사용자 직접 매칭','선택한 잔액으로 매칭',allow_partial=True)
+        except ValueError as exc:messagebox.showerror('매칭 확인',str(exc),parent=dialog);return
+        if on_save(updated) is not False:dialog.destroy()
+    save_button=ttk.Button(toolbar,text='매칭하기',command=save,style='Primary.TButton');save_button.pack(side='right')
+    ttk.Button(toolbar,text='취소',command=dialog.destroy).pack(side='right',padx=8)
+    ttk.Label(outer,textvariable=totals).pack(fill='x',pady=(0,6))
+    panels=ttk.Panedwindow(outer,orient='horizontal');panels.pack(fill='both',expand=True)
     for side,title in [('D','차변 · 정산 내역'),('C','대변 · 입금 내역')]:
-        frame=ttk.Frame(panels);panels.add(frame,weight=1);ttk.Label(frame,text=title).pack(anchor='w')
-        tree=table(frame,('선택','원본행','회계일자','부서','거래선','적요','잔여액','배분액'));trees[side]=tree
-        for col in tree['columns']:tree.column(col,width=100,stretch=True)
-        tree.column('선택',width=45,stretch=False,anchor='center');tree.column('원본행',anchor='center');tree.column('적요',width=220)
+        frame=ttk.Frame(panels);panels.add(frame,weight=1);ttk.Label(frame,text=title).pack(anchor='w',pady=(0,5))
+        tree=table(frame,('선택','회계일자','부서','거래선','잔액'),horizontal_scroll=False);trees[side]=tree
+        tree._q.setSortingEnabled(False);tree.proxy.sort(-1)
+        tree._q.horizontalHeader().setSectionsClickable(False);tree._q.horizontalHeader().setSortIndicatorShown(False)
+        tree._q.setWordWrap(False)
+        tree._q.setProperty('compactRows',True)
+        tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         for t in sorted(byid.values(),key=lambda t:(t.day,t.row)):
             residual=sum(result['validation']['residual'][t.row_id])
             if t.side!=side or residual<=0:continue
             amounts[t.row_id]=residual
-            tree.insert('', 'end',iid=t.row_id,values=('☑' if t.row_id in selected else '☐',t.row,t.day.isoformat(),t.department,t.counterparty,t.description,f'{residual:,}',f'{residual:,}'))
+            tree.insert('','end',iid=t.row_id,values=('',t.day.isoformat(),t.department,t.counterparty,f'{residual:,}'))
+        def fit(event=None,t=tree):
+            available=max(1,t._q.viewport().width())
+            weights=(.09,.23,.23,.23,.22)
+            widths=[int(available*w) for w in weights];widths[-1]+=available-sum(widths)
+            for col,width in zip(t['columns'],widths):t.column(col,width=width,minwidth=1,stretch=False,anchor='e' if col=='잔액' else 'w')
+            t._q.verticalHeader().setDefaultSectionSize(max(28,tk.G.QFontMetrics(t._q.font()).height()+6))
+        tree.bind('<Configure>',fit,add='+');tree.after_idle(fit)
+        for identity in tree.get_children():
+            row=tree.model.rows.index(identity)
+            index=tree.proxy.mapFromSource(tree.model.index(row,0))
+            holder=tk.W.QWidget();layout=tk.W.QHBoxLayout(holder);layout.setContentsMargins(0,0,0,0)
+            check=tk.W.QCheckBox();check.setAccessibleName('거래 선택 '+identity)
+            check.setStyleSheet('QCheckBox::indicator {width:22px;height:22px;}')
+            check.setChecked(identity in selected);layout.addWidget(check,0,tk.C.Qt.AlignmentFlag.AlignCenter)
+            def toggle(checked,identity=identity):
+                selected.add(identity) if checked else selected.discard(identity)
+                update()
+            check.toggled.connect(toggle);tree._q.setIndexWidget(index,holder)
     selected.intersection_update(amounts)
-    totals=tk.StringVar();ttk.Label(outer,textvariable=totals).pack(fill='x',pady=6)
-    editor=ttk.Frame(outer);editor.pack(fill='x');entry=tk.StringVar()
-    ttk.Label(editor,text='현재 행 배분액(원)').pack(side='left');ttk.Entry(editor,textvariable=entry,width=18).pack(side='left',padx=5)
-    focused=[None]
-    def update():
-        d=sum(amounts[i] for i in selected if byid[i].side=='D');c=sum(amounts[i] for i in selected if byid[i].side=='C')
-        totals.set(f'선택 차변 {d:,}원   |   선택 대변 {c:,}원   |   잔여 예정 {c-d:,}원' + (' · 부분정산(입금일순 배분)' if 0<d<c else ''))
-        save_button.configure(state='normal' if 0<d<=c else 'disabled')
-    def click(event,tree):
-        identity=tree.identify_row(event.y)
-        if not identity:return
-        focused[0]=identity;entry.set(str(amounts[identity]))
-        if tree.identify_column(event.x)=='#1':
-            selected.discard(identity) if identity in selected else selected.add(identity)
-            tree.set(identity,'선택','☑' if identity in selected else '☐');update();return 'break'
-    for tree in trees.values():tree.bind('<Button-1>',lambda event,t=tree:click(event,t))
-    def adjust():
-        identity=focused[0]
-        if not identity:return
-        try:
-            value=int(entry.get().replace(',',''))
-            if not 0<value<=sum(result['validation']['residual'][identity]):raise ValueError()
-        except ValueError:messagebox.showerror('배분액','잔여액 이하의 양의 정수를 입력하세요.',parent=dialog);return
-        amounts[identity]=value;trees[byid[identity].side].set(identity,'배분액',f'{value:,}');update()
-    ttk.Button(editor,text='배분액 적용',command=adjust).pack(side='left')
-    def save():
-        try:updated=prepare_match(result,settings,{i:amounts[i] for i in selected},'사용자 직접 매칭','매칭 실행 화면에서 선택·배분 후 저장',allow_partial=True)
-        except ValueError as exc:messagebox.showerror('매칭 확인',str(exc),parent=dialog);return
-        dialog.destroy();on_save(updated)
-    save_button=ttk.Button(outer,text='매칭 저장',command=save);save_button.pack(side='right',pady=8)
-    ttk.Button(outer,text='취소',command=dialog.destroy).pack(side='right',padx=8)
-    update();dialog.grab_set()
+    dialog._match_trees=trees
+    dialog._match_totals=totals
+    update();dialog.deiconify();dialog.grab_set()
+    return dialog
 
 
 def open_reassignment(parent,result,settings,center,on_save,preselected=()):

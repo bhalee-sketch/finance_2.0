@@ -101,6 +101,7 @@ def open_suspense(parent,desktop,center,open_file):
                 '거래처 규칙':('원본 거래처','대응 거래처','적용 부서'),
                 '예외 규칙 관리':('구분','규칙ID','상태','별칭','기간','부서','승인자','목적·근거')}
         trees[name]=table(frame,custom.get(name,columns))
+        trees[name]._q.setProperty('compactRows',True)
         widths={'구분':55,'매칭번호':155,'판정':100,'유형':75,'전표정보':100,'회계일자':95,'부서명':100,'거래선':110,'차변':110,'대변':110,'적요':260,'원본행':65,'배분':110,'차변 잔여':110,'대변 잔여':110,'탐색 상태':170}
         if name=='거래처 규칙':
             for col in custom[name]:trees[name].column(col,width=260,stretch=True)
@@ -110,6 +111,7 @@ def open_suspense(parent,desktop,center,open_file):
         if name=='부서별 현황':
             for col in ('잔여 건수','순잔액(대변−차변)'):trees[name].column(col,anchor='e')
         if name=='미매칭 잔여':
+            trees[name].configure(displaycolumns=tuple(col for col in custom[name] if col!='거래처코드'))
             for col in custom[name]:
                 trees[name].column(col,width=130 if col in ('금액','정산금액','잔액') else 260 if col=='적요' else 180 if col=='예적금정보' else 110,anchor='e' if col in ('금액','정산금액','잔액') else 'w')
             for col in ('번호','선택'):trees[name].column(col,width=48,stretch=False,anchor='center')
@@ -126,13 +128,21 @@ def open_suspense(parent,desktop,center,open_file):
         def apply():
             nonlocal layout_job
             layout_job=None
-            from table_layout import fit_tree_async
-            fit_tree_async(trees[active()],[item['values'] for item in shown])
+            tree=trees[active()]
+            display=list(tree['displaycolumns'])
+            if display==['#all']:display=list(tree['columns'])
+            available=max(1,tree._q.viewport().width())
+            width=max(1,available//max(1,len(display)))
+            for index,col in enumerate(display):
+                tree.column(col,width=width+(available-width*len(display) if index==len(display)-1 else 0),minwidth=1,stretch=False)
+            tree._wrap_cells=False;tree._q.setWordWrap(False)
+            tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            tree._q.verticalHeader().setDefaultSectionSize(max(26,tk.G.QFontMetrics(tree._q.font()).height()+6))
         layout_job=window.after(100,apply)
     for tree in trees.values():tree.bind('<Configure>',fit_current,add='+')
     footer=wrapping_row(body);footer.pack(fill='x',pady=5);pager=tk.StringVar()
-    ttk.Label(footer,textvariable=pager).pack(side='left')
-    ttk.Label(body,textvariable=status,style='Muted.TLabel',wraplength=1180).pack(fill='x')
+
+
     def active():return notebook.tab(notebook.select(),'text')
     def selected():
         tree=trees[active()];return [shown[int(i[1:])] for i in tree.selection()]
@@ -268,7 +278,7 @@ def open_suspense(parent,desktop,center,open_file):
     def launch(work,done):
         nonlocal busy
         if busy:return
-        busy=True;cancel.clear();stop_button.configure(state='normal');states=[(w,w.cget('state')) for w in controls]
+        busy=True;cancel.clear();states=[(w,w.cget('state')) for w in controls]
         for w,_ in states:w.configure(state='disabled')
         def worker():
             try:messages.put(('done',work()))
@@ -280,7 +290,7 @@ def open_suspense(parent,desktop,center,open_file):
                 while True:
                     kind,value=messages.get_nowait()
                     if kind=='progress':status.set(value);continue
-                    busy=False;stop_button.configure(state='disabled')
+                    busy=False
                     for w,state in states:w.configure(state=state)
                     if kind=='done':
                         try:done(value)
@@ -313,7 +323,6 @@ def open_suspense(parent,desktop,center,open_file):
             refresh();status.set('검산 실패 — 정상 완료가 아닙니다.' if not value['validation']['ok'] else '탐색 미완료가 있습니다. 조건부매칭·미매칭 잔여를 확인하세요.' if value['incomplete'] else '검산 완료 · 조건부매칭은 회계상 정산 확정이 아닙니다.')
         launch(work,done)
     button(bar,'정산검증 실행',execute).configure(style='Primary.TButton')
-    stop_button=ttk.Button(bar,text='중단',command=cancel.set,state='disabled');stop_button.pack(side='left',padx=3)
     def form(title,fields,callback,save_text="저장 및 재검증"):
         dialog=tk.Toplevel(window);dialog.title(title);dialog.transient(window);dark_titlebar(dialog)
         center(dialog,780,min(700,100+len(fields)*42))
@@ -412,7 +421,7 @@ def open_suspense(parent,desktop,center,open_file):
         open_reassignment(window,result,settings,center,save_manual,selected_ids)
     button(reviewbar,'매칭 실행',manual_match)
     button(reviewbar,'매칭 건 교체',reassign)
-    button(footer,'매칭 내역 보기',detail)
+    button(filters,'매칭내역 보기',detail)
     button(reviewbar,'선택 승인·변경',approve);button(reviewbar,'선택 해제',release).configure(style='Caution.TButton')
     def disable_alias():
         if active()!='예외 규칙 관리' or not selected():return
@@ -444,7 +453,7 @@ def open_suspense(parent,desktop,center,open_file):
             status.set(f'현재화면 {len(data):,}건 · {p}')
             open_file(p)
         launch(lambda:export_visible_view(output,title,headers,data),done)
-    view_button=ttk.Button(footer,text='현재화면 엑셀열기',command=open_current_view)
-    view_button.pack(side='right',padx=6);controls.append(view_button)
+    view_button=ttk.Button(filters,text='현재화면 엑셀열기',command=open_current_view)
+    view_button.pack(side='left',padx=3);controls.append(view_button)
     window.protocol('WM_DELETE_WINDOW',lambda:cancel.set() if busy else window.destroy())
     refresh()

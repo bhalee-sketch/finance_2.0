@@ -1,12 +1,12 @@
 """Application-wide Qt style, with reversible light/dark preferences."""
 BG='#0D1420';PANEL='#172231';TEXT='#E2E8F0';MUTED='#94A3B8';ACCENT='#93C5FD'
 
-def qt_stylesheet(theme='light'):
+def qt_stylesheet(theme='light',text_scale=110):
     from pathlib import Path
     arrow=(Path(__file__).resolve().parent/'assets'/'chevron-down.svg').as_posix()
     light=theme=='light'
     bg='#F5F2FA' if light else '#171422';panel='#FFFFFF' if light else '#231F30';text='#403B4A' if light else '#EAE5F4';muted='#696174' if light else '#ADA4BF';border='#E9E3F0' if light else '#3A324D';accent='#7651AD' if light else '#B99AEF';selection='#E9DFF7' if light else '#44345D';stripe='#FAF8FD' if light else '#292435';button_text='#FFFFFF' if light else '#211A2D'
-    return f'''
+    stylesheet=f'''
 QWidget {{ color:{text}; background-color:{panel}; }}
 QLabel {{ background:transparent; }}
 QLabel[role="Title.TLabel"] {{ font-size:24pt; font-weight:700; }}
@@ -15,7 +15,7 @@ QLabel[role="Muted.TLabel"] {{ color:{muted}; }}
 QLabel[role="Accent.TLabel"] {{ color:{accent}; font-weight:600; }}
 QPushButton {{ background:{panel}; border:1px solid {border}; border-radius:8px; padding:7px 12px; min-height:18px; }}
 QPushButton:hover {{ border-color:{accent}; background:{selection}; }}
-QPushButton:focus,QToolButton:focus {{ outline:2px solid {accent}; }}
+QPushButton:focus,QToolButton:focus {{ outline:0; background:{selection}; border-color:{accent}; }}
 QPushButton:pressed {{ background:{selection}; }}
 QPushButton:disabled {{ color:{muted}; }}
 QPushButton[role="Primary.TButton"] {{ background:{accent}; color:{button_text}; font-weight:600; border-color:{accent}; }}
@@ -75,6 +75,9 @@ QTableView#WorkspaceList QHeaderView::section {{ border:0; border-bottom:1px sol
 QSplitter#WorkspaceSplit::handle {{ background:{bg}; width:8px; }}
 
 '''
+    import re
+    return re.sub(r'font-size:(\d+)pt',lambda match:f'font-size:{int(match.group(1))*text_scale/100:g}pt',stylesheet)
+
 
 def apply_theme(root):
     from appearance import set_appearance

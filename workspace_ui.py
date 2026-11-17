@@ -184,16 +184,17 @@ class Workspace:
         if self.root.grab_current() is not None:return
         if key in self.tabs and self.tabs[key].winfo_exists():self.notebook.select(self.tabs[key]);self.remember_workflow(self.commands[key][0]);return
         title,command=self.commands[key];before=set(self.root.winfo_children())
-        command()
-        windows=[w for w in self.root.winfo_children() if w not in before and isinstance(w,tk.Toplevel)]
-        if not windows:return
-        window=windows[0]
-        if not window.winfo_exists() or self.root.grab_current() is not None:return
-        callback=window.protocol('WM_DELETE_WINDOW')
-        window.withdraw();window._q.setWindowFlag(C.Qt.WindowType.Window,False)
-        self.tabs[key]=window;self.closing[str(window)]=callback
-        self.notebook.add(window,text=title);self.notebook.select(window)
-        self.remember_workflow(title);self.sync_tabs()
+        with tk.defer_workflow_windows(self.root):
+            command()
+            windows=[w for w in self.root.winfo_children() if w not in before and isinstance(w,tk.Toplevel)]
+            if not windows:return
+            window=windows[0]
+            if not window.winfo_exists() or self.root.grab_current() is not None:return
+            callback=window.protocol('WM_DELETE_WINDOW')
+            window.withdraw();window._q.setWindowFlag(C.Qt.WindowType.Window,False)
+            self.tabs[key]=window;self.closing[str(window)]=callback
+            self.notebook.add(window,text=title);self.notebook.select(window)
+            self.remember_workflow(title);self.sync_tabs()
 
     def close_index(self,index):
         if index<0 or index>=len(self.tab_paths):return

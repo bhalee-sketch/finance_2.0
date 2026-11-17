@@ -178,6 +178,8 @@ def main():
             from hometax_ui import open_hometax
             selected_month=int(choice.get()[:-1]) if mode.get()=='월 단위 검증' else PERIODS[choice.get()][0]
             open_hometax(window,path.get(),year.get(),selected_month,center_window,open_result_file)
+        button=ttk.Button(year_row,text='검증 실행',command=lambda:execute(),style='Primary.TButton',padding=(10,5))
+        button.pack(side='right',padx=(8,0))
         ttk.Button(year_row,text='미처리 상계',command=open_offset).pack(side='right',padx=(8,0))
         ttk.Button(year_row,text='연도 폴더 만들기',command=create_folders).pack(side='right')
         def export_school():
@@ -197,17 +199,23 @@ def main():
         update_preview()
         ttk.Label(frame,textvariable=preview,wraplength=610).pack(anchor='w')
         mode=tk.StringVar(value='월 단위 검증'); choice=tk.StringVar(value='1월')
-        modes=ttk.Combobox(frame,textvariable=mode,values=['월 단위 검증','신고기간 검증'],state='readonly'); modes.pack(fill='x',pady=15)
-        select=ttk.Combobox(frame,textvariable=choice,values=[f'{m}월' for m in range(1,13)],state='readonly'); select.pack(fill='x')
+        ttk.Label(year_row,text='검증').pack(side='left',padx=(12,4))
+        modes=ttk.Combobox(year_row,textvariable=mode,values=['월 단위 검증','신고기간 검증'],state='readonly',width=12); modes.pack(side='left')
+        modes._q.setAccessibleName('검증 구분')
+        ttk.Label(year_row,text='월·기간').pack(side='left',padx=(10,4))
+        select=ttk.Combobox(year_row,textvariable=choice,values=[f'{m}월' for m in range(1,13)],state='readonly',width=8); select.pack(side='left')
+        select._q.setAccessibleName('검증 월·기간')
         def change(_):
             values=[f'{m}월' for m in range(1,13)] if mode.get()=='월 단위 검증' else list(PERIODS)
             select.configure(values=values); choice.set(values[0])
         modes.bind('<<ComboboxSelected>>',change)
-        ttk.Label(frame,text='학사 자료 저장: 선택한 월의 폴더에 4종을 바로 저장합니다.\n학사 합계표의 조회 기간은 실행 전에 같은 월로 맞춰 두세요.',wraplength=650).pack(anchor='w',pady=(8,0))
-        ttk.Label(frame,text='신고기간: 1기예정 1~3월 · 1기확정 4~6월\n2기예정 7~9월 · 2기확정 10~12월\n월별 홈택스·학사 자료 각 4종, 총 8개 파일을 준비하세요.').pack(anchor='w',pady=16)
+        ttk.Label(frame,text='월별 홈택스·학사 자료 각 4종을 준비하고, 학사 조회 기간을 선택 월과 맞춰 주세요.',wraplength=1000).pack(fill='x',pady=(6,8))
         status=tk.StringVar(value='검증 후 결과를 자동 저장하고 기본 연결 프로그램으로 엽니다.')
         window._work_status=status
-        ttk.Label(frame,textvariable=status,wraplength=610,style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(frame,textvariable=status,wraplength=1000,style='Muted.TLabel').pack(side='bottom',fill='x',pady=6)
+        from tax_result_view import TaxResultView,read_issue_sheets
+        results=TaxResultView(frame)
+        window._tax_results=results
         messages=queue.Queue(); busy=False
         def close():
             if not busy: window.destroy()
@@ -218,7 +226,9 @@ def main():
             except queue.Empty: window.after(100,poll); return
             busy=False; button.configure(state='normal'); status.set('검증 완료' if success else '자료 확인 필요')
             if success:
-                status.set(f'저장 완료: {result}')
+                result,issue_sheets=result
+                results.set_results(issue_sheets)
+                status.set(f'차이·확인필요 {sum(len(sheet["rows"]) for sheet in issue_sheets):,}건 · 저장 완료: {result}')
                 try:
                     open_result_file(result)
                 except (OSError, subprocess.SubprocessError) as e:
@@ -234,12 +244,14 @@ def main():
                 messagebox.showerror('연도 설정 확인',str(e),parent=window)
                 return
             label=f'{year.get().strip()}_{choice.get()}'
-            busy=True; button.configure(state='disabled'); status.set('엑셀 자료를 검증하고 있습니다…')
+            busy=True; button.configure(state='disabled'); results.clear(); status.set('엑셀 자료를 검증하고 있습니다…')
             def work():
-                try: messages.put((True,str(run(folder,months,label))))
+                try:
+                    result=run(folder,months,label)
+                    messages.put((True,(str(result),read_issue_sheets(result))))
                 except Exception as e: messages.put((False,str(e)))
             threading.Thread(target=work,daemon=True).start(); window.after(100,poll)
-        button=ttk.Button(frame,text='검증 실행  →',command=execute,style='Primary.TButton'); button.pack(fill='x',pady=20)
+
     def rental_view():
         from rental_ui import open_rentals
         open_rentals(root,desktop,center_window,open_result_file)

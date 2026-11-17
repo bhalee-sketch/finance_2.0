@@ -14,12 +14,13 @@ from ui_theme import dark_titlebar
 
 
 def ask_certificate_password(parent):
-    dialog=tk.Toplevel(parent);dialog.title('공동인증서 비밀번호');dark_titlebar(dialog)
-    dialog.transient(parent);dialog.resizable(False,False)
-    panel=ttk.Frame(dialog,padding=20);panel.pack(fill='both',expand=True)
+    dialog=tk.Toplevel(parent,show_on_create=False);dialog.title('공동인증서 비밀번호');dark_titlebar(dialog)
+    dialog.transient(parent)
+    panel=ttk.Frame(dialog,padding=18);panel.pack(fill='both',expand=True)
     ttk.Label(panel,text=f'지정 인증서 만료일: {EXPIRY}',style='Accent.TLabel').pack(anchor='w')
-    ttk.Label(panel,text='이번 로그인에 사용할 인증서 비밀번호를 입력하세요.\n비밀번호는 파일이나 설정에 저장하지 않습니다.').pack(anchor='w',pady=10)
-    entry=ttk.Entry(panel,show='●',width=36);entry.pack(fill='x',pady=6)
+    ttk.Label(panel,text='인증서 비밀번호',wraplength=360).pack(anchor='w',pady=(10,4))
+    entry=ttk.Entry(panel,show='●',width=28);entry.pack(fill='x',pady=6)
+    ttk.Label(panel,text='비밀번호는 저장하지 않습니다.',style='Muted.TLabel').pack(anchor='w',pady=(4,0))
     result=[]
     def finish(submit=False):
         if submit:
@@ -33,18 +34,24 @@ def ask_certificate_password(parent):
     dialog.bind('<Return>',lambda e:finish(True));dialog.bind('<Escape>',lambda e:finish())
     dialog.protocol('WM_DELETE_WINDOW',finish)
     dialog.update_idletasks()
-    x=max(0,parent.winfo_rootx()+(parent.winfo_width()-dialog.winfo_reqwidth())//2)
-    y=max(0,parent.winfo_rooty()+(parent.winfo_height()-dialog.winfo_reqheight())//2)
-    dialog.geometry(f'+{x}+{y}');dialog.grab_set();entry.focus_set()
+    center=parent._q.mapToGlobal(parent._q.rect().center())
+    screen=(tk.application().screenAt(center) or parent._q.screen()).availableGeometry()
+    width=min(max(400,dialog.winfo_reqwidth()+12),screen.width()-24)
+    height=min(max(220,dialog.winfo_reqheight()+12),screen.height()-24)
+    x=max(screen.left()+12,min(center.x()-width//2,screen.right()-width-11))
+    y=max(screen.top()+12,min(center.y()-height//2,screen.bottom()-height-11))
+    dialog.geometry(f'{width}x{height}{x:+d}{y:+d}');dialog._q.setFixedSize(width,height)
+    dialog.deiconify();dialog.grab_set();entry.focus_set()
     parent.wait_window(dialog)
     return result.pop() if result else None
 
 
 def open_hometax(parent,root_path,initial_year,initial_month,center,open_file):
-    window=tk.Toplevel(parent);window.title('홈택스 자료 내려받기 · 초기 지원');dark_titlebar(window);center(window,980,650)
+    window=tk.Toplevel(parent,show_on_create=False);window.title('홈택스 자료 내려받기');dark_titlebar(window)
+    window.minsize(860,620);center(window,1000,720)
     body=ttk.Frame(window,padding=18);body.pack(fill='both',expand=True)
     ttk.Label(body,text='홈택스 자료 내려받기',style='Section.TLabel').pack(anchor='w')
-    ttk.Label(body,text='로그인 · 4종 받기를 누르면 Chrome을 바로 최소화해 작업하고, 정상 완료 시 종료합니다. 비밀번호는 저장하지 않습니다.\n자동 입력이 지원되지 않으면 Chrome에서 직접 로그인한 뒤 로그인 완료 · 4종 받기를 누르세요.',wraplength=800).pack(anchor='w',pady=8)
+    ttk.Label(body,text='로그인 후 자료 4종을 내려받습니다. 비밀번호는 저장하지 않습니다.\n자동 입력이 어려우면 Chrome에서 직접 로그인한 뒤 진행하세요.',wraplength=920).pack(fill='x',pady=8)
     ttk.Label(body,text=MENU,style='Muted.TLabel',wraplength=800).pack(anchor='w')
     ttk.Label(body,text=f'지정 인증서: 만료일 {EXPIRY} (소유자명 무관 · 일치하는 1개만 선택)',style='Accent.TLabel').pack(anchor='w',pady=(5,0))
     bar=ttk.Frame(body);bar.pack(fill='x',pady=12)
@@ -216,3 +223,4 @@ def open_hometax(parent,root_path,initial_year,initial_month,center,open_file):
         except queue.Empty:pass
         if window.winfo_exists():window.after(100,poll)
     window.protocol('WM_DELETE_WINDOW',close);window.after(100,poll)
+    window.deiconify()

@@ -64,7 +64,7 @@ def position(root,w,h,x,y):
     else:root.geometry(f'{w}x{h}{x:+d}{y:+d}')
 
 
-DEFAULTS={'opacity':85, 'size':100, 'hover':True, 'topmost':True, 'theme':'light', 'font':'Paperlogy', 'chart_font':'', 'numeric_font':'', 'lock_position':False, 'view_mode':'workspace'}
+DEFAULTS={'opacity':85, 'size':100, 'text_scale':110, 'hover':True, 'topmost':True, 'theme':'light', 'font':'Paperlogy', 'chart_font':'', 'numeric_font':'', 'lock_position':False, 'view_mode':'workspace'}
 
 
 def load_preferences(path):
@@ -72,7 +72,7 @@ def load_preferences(path):
         data=json.loads(Path(path).read_text(encoding='utf-8'))
         if not isinstance(data,dict):return dict(DEFAULTS)
         result=dict(DEFAULTS)
-        for key,low,high in (('opacity',30,100),('size',75,130)):
+        for key,low,high in (('opacity',30,100),('size',75,130),('text_scale',80,150)):
             value=data.get(key)
             if isinstance(value,(int,float)) and low<=value<=high:result[key]=int(value)
         for key in ('hover','topmost','lock_position'):
@@ -109,7 +109,7 @@ class Launcher:
     def __init__(self,root,groups,settings_path):
         self.settings_path=Path(settings_path);self.preferences=load_preferences(settings_path)
         from appearance import set_appearance
-        set_appearance(root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''))
+        set_appearance(root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110))
         self.settings_window=None
         self.root=root;self.groups=groups;self.cards=[card for _,cards in groups for card in cards];self.compact=self.preferences.get('view_mode')!='workspace';self.workspace=None;self.normal_geometry=None;self.active_group=None
         root.overrideredirect(True);root.attributes('-topmost',self.preferences['topmost']);root.attributes('-alpha',self.preferences['opacity']/100)
@@ -345,7 +345,8 @@ class Launcher:
         for name in (before['font'],before.get('chart_font'),before.get('numeric_font')):
             if name and name not in registered:registered.append(name)
         registered=sorted(set(registered),key=str.casefold)
-        labels=[tk.StringVar(),tk.StringVar()]
+        text_scale=tk.DoubleVar(value=before.get('text_scale',110))
+        labels=[tk.StringVar(),tk.StringVar(),tk.StringVar()]
         preview_job=None;finishing=False
         def apply_preview():
             nonlocal preview_job
@@ -353,13 +354,14 @@ class Launcher:
             previous_size=self.preferences['size']
             if self.compact and locked.get() and not self.preferences.get('lock_position',False):
                 self.preferences['geometry']=[self.root.winfo_width(),self.root.winfo_height(),self.root.winfo_x(),self.root.winfo_y()]
-            self.preferences.update(numeric_font='' if numeric_font.get()=='화면 글꼴과 동일' else numeric_font.get(),registered_fonts=list(registered),opacity=round(opacity.get()),size=round(size.get()),hover=hover.get(),topmost=topmost.get(),lock_position=locked.get(),theme='light' if theme.get()=='화이트' else 'dark',font=font.get(),chart_font='' if chart_font.get()=='화면 글꼴과 동일' else chart_font.get())
+            self.preferences.update(text_scale=round(text_scale.get()),numeric_font='' if numeric_font.get()=='화면 글꼴과 동일' else numeric_font.get(),registered_fonts=list(registered),opacity=round(opacity.get()),size=round(size.get()),hover=hover.get(),topmost=topmost.get(),lock_position=locked.get(),theme='light' if theme.get()=='화이트' else 'dark',font=font.get(),chart_font='' if chart_font.get()=='화면 글꼴과 동일' else chart_font.get())
             from appearance import set_appearance
-            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''))
+            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110))
             if previous_size!=self.preferences['size']:
                 if not self.preferences.get('lock_position',False):self.preferences.pop('geometry',None)
                 self.preferences.pop('page_heights',None)
             labels[0].set(f"투명도 {100-self.preferences['opacity']}% · 0%이면 완전히 선명")
+            labels[2].set(f"텍스트 크기 {self.preferences['text_scale']}%")
             labels[1].set(f"메뉴 크기 {self.preferences['size']}%")
             if previous_size!=self.preferences['size']:
                 self.render();self.place()
@@ -402,10 +404,12 @@ class Launcher:
                 preview()
             open_font_picker(window,added)
         ttk.Button(appearance_panel,text='글꼴 추가',command=register_font).pack(anchor='w',pady=8)
-        for var,label,low,high in ((opacity,labels[0],30,100),(size,labels[1],75,130)):
+        for var,label,low,high in ((opacity,labels[0],30,100),(size,labels[1],75,130),(text_scale,labels[2],80,150)):
             panel=window_panel if var is opacity else appearance_panel
             ttk.Label(panel,textvariable=label).pack(anchor='w',pady=(12,4))
-            ttk.Scale(panel,variable=var,from_=low,to=high,length=360,command=preview).pack(fill='x')
+            slider=ttk.Scale(panel,variable=var,from_=low,to=high,length=360,command=preview)
+            slider.pack(fill='x')
+            if var is text_scale:slider._q.setAccessibleName('텍스트 크기')
         ttk.Label(window_panel,text='투명도는 투명화 모드에서 적용됩니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
         ttk.Checkbutton(window_panel,text='마우스를 올리면 선명하게 표시',variable=hover,command=preview).pack(anchor='w')
         ttk.Checkbutton(window_panel,text='일반 메뉴를 항상 맨 위에 표시 (플로팅은 항상 위)',variable=topmost,command=preview).pack(anchor='w',pady=(6,0))
@@ -427,14 +431,14 @@ class Launcher:
                     if key in self.preferences:before[key]=self.preferences[key]
                 self.preferences=before
             from appearance import set_appearance
-            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''))
+            set_appearance(self.root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110))
             window.destroy();self.settings_window=None
             self.root.attributes('-topmost',self.floating or self.preferences['topmost'])
             if applied_size!=self.preferences['size'] or applied_mode!=self.preferences.get('view_mode','compact'):
                 self.render();self.place()
             self.fade() if self.compact else None
         def reset():
-            view_mode.set(DEFAULTS['view_mode']);opacity.set(DEFAULTS['opacity']);size.set(DEFAULTS['size']);hover.set(DEFAULTS['hover']);topmost.set(DEFAULTS['topmost']);locked.set(False);theme.set('화이트' if DEFAULTS['theme']=='light' else '다크');font.set(DEFAULTS['font']);chart_font.set('화면 글꼴과 동일');numeric_font.set('화면 글꼴과 동일');preview()
+            view_mode.set(DEFAULTS['view_mode']);opacity.set(DEFAULTS['opacity']);size.set(DEFAULTS['size']);text_scale.set(DEFAULTS['text_scale']);hover.set(DEFAULTS['hover']);topmost.set(DEFAULTS['topmost']);locked.set(False);theme.set('화이트' if DEFAULTS['theme']=='light' else '다크');font.set(DEFAULTS['font']);chart_font.set('화면 글꼴과 동일');numeric_font.set('화면 글꼴과 동일');preview()
         actions=ttk.Frame(body);actions.pack(fill='x',pady=(18,0))
         ttk.Button(actions,text='초기값',command=reset).pack(side='left')
         ttk.Button(actions,text='저장',command=lambda:finish(True)).pack(side='right')

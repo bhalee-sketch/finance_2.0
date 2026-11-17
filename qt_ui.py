@@ -11,6 +11,7 @@ import sys
 import traceback
 import weakref
 from pathlib import Path
+from contextlib import contextmanager
 from PySide6 import QtCore as C, QtGui as G, QtWidgets as W
 from shiboken6 import isValid
 
@@ -23,6 +24,24 @@ _variables=weakref.WeakValueDictionary()
 _fonts=weakref.WeakValueDictionary()
 _named_fonts={}
 _ids=itertools.count(1)
+_workflow_creation=[]
+
+
+@contextmanager
+def defer_workflow_windows(root):
+    """Keep a newly constructed workflow off screen until its tab owns it."""
+    created=[]
+    _workflow_creation.append((root,created))
+    try:
+        yield
+    finally:
+        _workflow_creation.pop()
+        for window in created:
+            if not window.winfo_exists():continue
+            visible=window._q.isVisible()
+            window._q.hide()
+            window._q.setAttribute(C.Qt.WidgetAttribute.WA_DontShowOnScreen,False)
+            if visible:window._q.show()
 
 def application():
     global _app
@@ -92,7 +111,7 @@ class Font:
         if isinstance(font,Font):self.q=G.QFont(font.q)
         elif isinstance(font,G.QFont):self.q=G.QFont(font)
         elif isinstance(font,(tuple,list)):
-            self.q=G.QFont(str(font[0]),abs(int(font[1])) if len(font)>1 else 10)
+            self.q=G.QFont(str(font[0]));self.q.setPointSizeF((abs(float(font[1])) if len(font)>1 else 10)*(application().property('textScale') or 100)/100)
             if len(font)>2:self.q.setBold('bold' in str(font[2:]));self.q.setItalic('italic' in str(font[2:]))
         elif str(font) in _fonts:self.q=G.QFont(_fonts[str(font)].q)
         else:self.q=G.QFont(application().font())
@@ -167,6 +186,10 @@ class PackLayout(W.QLayout):
         entries=[e for e in self.entries if not e[0].widget().isHidden()]
         for index,(item,o) in enumerate(entries):
             side=o.get('side','top');horizontal=side in ('left','right');size=item.sizeHint();px=_pair(o.get('padx',0));py=_pair(o.get('pady',0));fill=o.get('fill','none')
+            if not horizontal and item.hasHeightForWidth():
+                width=max(1,area.width()-sum(px))
+                if fill not in ('x','both'):width=min(size.width(),width)
+                size=C.QSize(size.width(),item.heightForWidth(width))
             natural=size.width()+sum(px) if horizontal else size.height()+sum(py)
             if o.get('expand'):
                 same=[(it,op) for it,op in entries[index:] if (op.get('side','top') in ('left','right'))==horizontal]
@@ -298,7 +321,8 @@ class Widget:
                 self._q.setMinimumWidth(max(16,round(float(value)*G.QFontMetricsF(self._q.font()).averageCharWidth()+16)))
             elif key=='width' and not isinstance(self,(Entry,Combobox,Spinbox,Label,Button,Listbox,Treeview)):self._q.resize(max(1,int(float(value))),self._q.height())
             elif key=='height' and not isinstance(self,(Text,Listbox,Treeview)):self._q.resize(self._q.width(),max(1,int(float(value))))
-            elif key=='wraplength' and isinstance(self._q,W.QLabel):self._q.setWordWrap(bool(value))
+            elif key=='wraplength' and isinstance(self._q,W.QLabel):
+                self._q.setProperty('wrapWidth',int(value or 0));self._q.setWordWrap(bool(value));self._q.updateGeometry()
             elif key in ('padding','padx','pady'):
                 if key=='padding':self._q.setContentsMargins(*_margins(value))
             elif key=='cursor':self._q.setCursor(C.Qt.CursorShape.PointingHandCursor if value=='hand2' else C.Qt.CursorShape.SizeAllCursor if value=='fleur' else C.Qt.CursorShape.ArrowCursor)
@@ -334,7 +358,9 @@ class Widget:
         from numeric_tree import numeric_text
         spec=self._options.get('font',self._q.font());f=Font(font=spec).q
         text=self._q.text() if isinstance(self._q,W.QLabel) else ''
-        if not isinstance(spec,Font):f.setFamily((appearance.numeric_family or appearance.family) if numeric_text(text) else appearance.family)
+        if not isinstance(spec,Font):
+            family=(appearance.numeric_family or appearance.family) if numeric_text(text) else appearance.family
+            f.setFamilies([family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif'])
         self._q.setFont(f)
         if isinstance(self._q,(W.QRadioButton,W.QCheckBox)):
             metrics=G.QFontMetrics(self._q.font())
@@ -487,6 +513,9 @@ class Window(Widget):
     report_callback_exception=None
     def __init__(self,master=None,show_on_create=True,**kw):
         super().__init__(master,**kw)
+        if _workflow_creation and master is _workflow_creation[-1][0]:
+            self._q.setAttribute(C.Qt.WidgetAttribute.WA_DontShowOnScreen,True)
+            _workflow_creation[-1][1].append(self)
         self._q.setWindowFlag(C.Qt.WindowType.Window,True)
         self._q.setAttribute(C.Qt.WidgetAttribute.WA_DeleteOnClose,False)
         self._content=W.QWidget();self._content.setObjectName(self._name+'Content')
@@ -552,11 +581,38 @@ class LabelFrame(Widget):
     def configure(self,cnf=None,**kw):
         super().configure(cnf,**kw)
         if 'text' in kw:self._q.setTitle(str(kw['text']))
+class TextLabel(W.QLabel):
+    """Measure wrapped text at the requested width, including Korean fallback glyphs."""
+    def sizeHint(self):
+        size=super().sizeHint()
+        width=self.property('wrapWidth')
+        if self.wordWrap() and width:
+            width=int(width)
+            return C.QSize(width,self.heightForWidth(width))
+        return C.QSize(size.width()+2,max(size.height(),G.QFontMetrics(self.font()).height())+4)
+
+    def heightForWidth(self,width):
+        if not self.wordWrap():return self.sizeHint().height()
+        margins=self.contentsMargins()
+        document=G.QTextDocument();document.setDocumentMargin(0)
+        document.setDefaultFont(self.font());document.setPlainText(self.text())
+        document.setTextWidth(max(1,width-margins.left()-margins.right()))
+        return int(document.size().height()+.999)+margins.top()+margins.bottom()+6
+
+
 class Label(Widget):
-    qt_type=W.QLabel
+    qt_type=TextLabel
     def __init__(self,*args,**kw):super().__init__(*args,**kw);self._q.setTextInteractionFlags(C.Qt.TextInteractionFlag.TextSelectableByMouse);self._q.setWordWrap(bool(kw.get('wraplength')))
+class HighlightButton(W.QPushButton):
+    def paintEvent(self,event):
+        option=W.QStyleOptionButton();self.initStyleOption(option)
+        if self.hasFocus():option.state |= W.QStyle.StateFlag.State_MouseOver
+        option.state &= ~W.QStyle.StateFlag.State_HasFocus
+        painter=W.QStylePainter(self);painter.drawControl(W.QStyle.ControlElement.CE_PushButton,option)
+
+
 class Button(Widget):
-    qt_type=W.QPushButton
+    qt_type=HighlightButton
     def __init__(self,*args,**kw):super().__init__(*args,**kw);self._q.clicked.connect(lambda:_invoke(self._options['command']) if self._options.get('command') else None)
     def invoke(self):
         if self._q.isEnabled() and self._options.get('command'):return _invoke(self._options['command'])
@@ -891,12 +947,15 @@ class Treeview(Widget):
         if not self.winfo_exists():return
         callback=self._options.get(axis+'scrollcommand')
         if callback:_invoke(callback,*(self.xview() if axis=='x' else self.yview()))
-    def refresh_numbers(self,*args):self._q.setShowGrid(bool(self._cell_grid));self._q.viewport().update()
+    def refresh_numbers(self,*args):
+        compact=bool(self._q.property('compactRows'))
+        self._q.verticalHeader().setDefaultSectionSize(max(26 if compact else 32,G.QFontMetrics(self._q.font()).height()+(6 if compact else 12)))
+        self._q.setShowGrid(bool(self._cell_grid));self._q.viewport().update()
     refresh_grid=refresh_numbers
     def _font(self,spec=None,numeric=False):
         appearance=getattr(self._root(),'_appearance',None)
         raw=spec or self._q.font();signature=raw.toString() if isinstance(raw,G.QFont) else str(raw)
-        key=(signature,numeric,appearance.family if appearance else '',appearance.numeric_family if appearance else '')
+        key=(application().property('textScale'),signature,numeric,appearance.family if appearance else '',appearance.numeric_family if appearance else '')
         cache=getattr(self,'_resolved_fonts',None)
         if cache is None:cache={};self._resolved_fonts=cache
         if key in cache:return cache[key]

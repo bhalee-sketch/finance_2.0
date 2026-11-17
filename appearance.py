@@ -98,8 +98,9 @@ class Appearance:
         for key,value in options.items():
             if key in COLOR_OPTIONS:out[key]=color(value,self.theme)
         return out
-    def update(self,theme,font,chart_font=None,numeric_font=None):
-        settings=(theme,font,chart_font if chart_font is not None else self.chart_requested,numeric_font if numeric_font is not None else self.numeric_requested)
+    def update(self,theme,font,chart_font=None,numeric_font=None,text_scale=110):
+        text_scale=max(80,min(150,int(text_scale)))
+        settings=(text_scale,theme,font,chart_font if chart_font is not None else self.chart_requested,numeric_font if numeric_font is not None else self.numeric_requested)
         if self.applied and getattr(self,'_last_settings',None)==settings:return
         self.theme=theme if theme in ('dark','light') else 'dark';self.requested=font
         self.family=choose_font(font,tkfont.families(self.root))
@@ -111,13 +112,18 @@ class Appearance:
         self.applied=True
         self._last_settings=settings
         from ui_theme import qt_stylesheet
-        tk.application().setStyleSheet(qt_stylesheet(self.theme))
-        tk.application().setFont(tk.Font(font=(self.family,10)).q)
+        previous_scale=tk.application().property('textScale') or 100
+        previous_fonts={native:tk.G.QFont(native.font()) for native in tk.application().allWidgets()}
+        tk.application().setProperty('textScale',text_scale)
+        tk.application().setStyleSheet(qt_stylesheet(self.theme,text_scale))
+        default_font=tk.Font(font=(self.family,10)).q
+        default_font.setFamilies([self.family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif'])
+        tk.application().setFont(default_font)
         # Styled native Qt controls can retain the family resolved before setFont().
         # Apply the family explicitly, retaining each control's size and weight.
         for native in tk.application().allWidgets():
             if native is self.root._q or self.root._q.isAncestorOf(native):
-                updated=tk.G.QFont(native.font());updated.setFamily(self.family);native.setFont(updated)
+                updated=previous_fonts.get(native,tk.G.QFont(native.font()));updated.setPointSizeF(max(1,updated.pointSizeF()*text_scale/previous_scale));updated.setFamilies([self.family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif']);native.setFont(updated)
         for widget in list(tk._registry.values()):
             if not widget.winfo_exists():continue
             if isinstance(widget,tk.Window) and widget._q.isWindow():
@@ -140,7 +146,7 @@ def initialize(root):
     return root._root()._appearance
 
 
-def set_appearance(root,theme,font,chart_font=None,numeric_font=None):
+def set_appearance(root,theme,font,chart_font=None,numeric_font=None,text_scale=110):
     appearance=initialize(root)
-    appearance.update(theme,font,chart_font,numeric_font)
+    appearance.update(theme,font,chart_font,numeric_font,text_scale)
     return appearance.family
