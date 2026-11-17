@@ -3,6 +3,7 @@ from pathlib import Path
 import qt_ui as tk
 from qt_ui import ttk,filedialog,messagebox
 from transfer_text import find_accounts,load_accounts,matches,make_text
+from transfer_accounts import DATABASE,read_accounts,import_accounts,normalize_source
 from ui_theme import dark_titlebar,BG
 
 
@@ -24,28 +25,41 @@ def open_transfer(parent,desktop,center,open_file):
         candidate=Path(path) if path else selected_file
         folder=desktop()/'settings'
         def work():
-            chosen=candidate or find_accounts(folder)
-            return chosen,load_accounts(chosen)
+            local=folder/'accounts'/'transfer_accounts.sqlite3'
+            report=None
+            if path is not None:
+                import hashlib,shutil
+                normalize_source(candidate)  # Validate before changing the active monthly snapshot.
+                digest=hashlib.sha256(candidate.read_bytes()).hexdigest()
+                archive=local.parent/'originals';archive.mkdir(parents=True,exist_ok=True)
+                target=archive/(digest[:16]+'-'+candidate.name)
+                if not target.exists():shutil.copy2(candidate,target)
+                report=import_accounts(candidate,local);chosen=local
+            else:chosen=local if local.exists() else candidate or (DATABASE if DATABASE.exists() else find_accounts(folder))
+            data=read_accounts(chosen) if chosen.suffix.lower()=='.sqlite3' else load_accounts(chosen)
+            return chosen,data,report
         def done(value):
             nonlocal accounts,selected_file
-            selected_file,accounts=value
+            selected_file,accounts,report=value
+            if report is not None:window._latest_transfer_import=report
             for i in (0,1):search(i)
-            status.set('계좌명 또는 끝 5자리를 입력하세요. 중복이면 계좌 선택 버튼으로 선택하세요.')
+            status.set(f'계좌 {len(accounts):,}개 · 계좌명 또는 끝 5자리를 입력하세요. 중복이면 계좌 선택 버튼으로 선택하세요.')
         def failed(exc):
             nonlocal accounts
-            accounts=[]
             for i in (0,1):search(i)
-            status.set('자료 설정에서 계좌 파일을 확인한 후 다시 불러오세요.')
+            status.set('자료 설정에서 원본 파일을 확인하세요. 기존 계좌 목록은 유지합니다.')
             messagebox.showerror('계좌 자료 확인',str(exc),parent=window)
         reader.run(work,done,failed)
     def browse():
         path=filedialog.askopenfilename(parent=window,initialdir=str(desktop()/'settings'),filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
         if path:load(path)
     ttk.Button(header,text='자료 설정',command=browse).pack(side='right')
-    ttk.Button(header,text='새로고침',command=load).pack(side='right',padx=8)
     form=ttk.Frame(frame);form.pack(fill='x');form.columnconfigure(1,weight=1)
+    form._q.setMaximumWidth(760)
     ttk.Label(form,text='문구 구분',width=12).grid(row=0,column=0,sticky='w',pady=5)
-    ttk.Entry(form,textvariable=prefix).grid(row=0,column=1,sticky='ew',pady=5)
+    prefix_entry=ttk.Entry(form,textvariable=prefix,width=32)
+    prefix_entry._q.setAccessibleName('문구 구분')
+    prefix_entry._q.setMaximumWidth(440);prefix_entry.grid(row=0,column=1,sticky='ew',pady=5)
     ttk.Label(form,text='빈칸이면 계좌명만',style='Muted.TLabel').grid(row=0,column=2,padx=(10,0))
     def candidates(i):
         q=queries[i].get().strip()
@@ -83,6 +97,8 @@ def open_transfer(parent,desktop,center,open_file):
         r=1+i*2
         ttk.Label(form,text=title,width=12).grid(row=r,column=0,sticky='w',pady=5)
         entry=ttk.Entry(form,textvariable=queries[i]);entry.grid(row=r,column=1,sticky='ew',pady=5)
+        entry._q.setMaximumWidth(440)
+        entry._q.setAccessibleName(title)
         account_entries.append(entry)
         entry.bind('<Return>',lambda e,index=i:pick(index))
         ttk.Button(form,text='계좌 선택',width=14,command=lambda index=i:pick(index)).grid(row=r,column=2,padx=(10,0),pady=5,sticky='ew')
@@ -124,10 +140,11 @@ def open_transfer(parent,desktop,center,open_file):
     def clear_input():
         for q in queries:q.set('')
         prefix.set('자금이체')
+        status.set('입력값을 초기화했습니다.')
     def clear_output():
         for row in lines:row.destroy()
         lines.clear();status.set('화면의 생성 문구를 비웠습니다.')
     ttk.Button(actions,text='문구 생성',command=generate,style='Primary.TButton').pack(side='left')
-    ttk.Button(actions,text='입력 비우기',command=clear_input).pack(side='left',padx=8)
+    ttk.Button(actions,text='초기화',command=clear_input).pack(side='left',padx=8)
     ttk.Button(actions,text='생성 문구 비우기',command=clear_output).pack(side='right')
     window.after(100,load)

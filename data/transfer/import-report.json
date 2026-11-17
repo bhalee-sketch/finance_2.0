@@ -1,0 +1,11 @@
+{
+  "source": "원본.xls",
+  "sha256": "83c5f3162253f8693c03580c768e2ba9c4efa4e40f5c09e64389f4a22f840d6c",
+  "accounts": 221,
+  "excluded": {
+    "법인팀": 42,
+    "복지회": 9
+  },
+  "verification": "All normalized account names and numbers match the database",
+  "reference_verification": "All 221 accounts and their order match the supplied modified workbook"
+}

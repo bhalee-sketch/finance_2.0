@@ -1,5 +1,6 @@
 """Show exception rows from the tax verification workbook, in sheet order."""
 from openpyxl import load_workbook
+from decimal import Decimal,InvalidOperation
 import qt_ui as tk
 from qt_ui import ttk
 from statement_ui import table
@@ -7,7 +8,8 @@ from statement_catalog import amount_text
 
 
 def read_issue_sheets(path):
-    workbook=load_workbook(path,read_only=True,data_only=True)
+    owned=not hasattr(path,'worksheets')
+    workbook=load_workbook(path,read_only=True,data_only=True) if owned else path
     try:
         result=[]
         for sheet in workbook:
@@ -19,12 +21,17 @@ def read_issue_sheets(path):
             issues=[]
             for row in stream:
                 if not any(v is not None for v in row):continue
-                if row[verdict] in ('차이','확인필요') or row[0] in ('홈택스만','학사만') or any(
-                    row[i] not in (None,0,'','0') for i in differences):
-                    issues.append(list(row))
+                def differs(value):
+                    if value is None or str(value).strip()=='':return False
+                    try:
+                        number=Decimal(str(value).replace(',','').strip())
+                        return not number.is_finite() or number!=0
+                    except InvalidOperation:return True
+                if any(differs(row[i]) for i in differences):issues.append(list(row))
             result.append({'name':sheet.title,'headers':headers,'rows':issues})
         return result
-    finally:workbook.close()
+    finally:
+        if owned:workbook.close()
 
 
 class TaxResultView:
@@ -42,10 +49,13 @@ class TaxResultView:
         self.tree._q.horizontalHeader().setSectionsClickable(False)
         self.tree._q.horizontalHeader().setSortIndicatorShown(False)
         self.tree.tag_configure('review',background='#FDE8E8',foreground='#7F1D1D')
-        self.sheets=[];self.generation=0
+        self.tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tree._q.setWordWrap(False)
+        self.tree.bind('<Configure>',self.fit_columns,add='+')
+        self.sheets=[];self.generation=0;self.current_index=-1
 
     def clear(self):
-        self.generation+=1;self.sheets=[]
+        self.generation+=1;self.sheets=[];self.current_index=-1
         self.tabs.blockSignals(True)
         while self.tabs.count():self.tabs.removeTab(0)
         self.tabs.blockSignals(False)
@@ -61,7 +71,20 @@ class TaxResultView:
         self.tabs.blockSignals(False)
         self.display(0)
 
+    def fit_columns(self,event=None):
+        if not 0<=self.current_index<len(self.sheets):return
+        headers=self.sheets[self.current_index]['headers']
+        if not headers:return
+        available=max(1,self.tree._q.viewport().width())
+        weights=[135 if any(word in str(h) for word in ('가액','세액','금액','차이')) else 170 for h in headers]
+        widths=[int(available*weight/sum(weights)) for weight in weights];widths[-1]+=available-sum(widths)
+        self.tree._width_preferences.locked.clear()
+        for column,width in enumerate(widths):self.tree.column(str(column),width=width,minwidth=1,stretch=False)
+        header=self.tree._q.horizontalHeader();header.setMinimumSectionSize(1)
+        header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+
     def display(self,index):
+        self.current_index=index
         self.generation+=1;generation=self.generation
         self.tree.delete(*self.tree.get_children())
         if not 0<=index<len(self.sheets):
@@ -79,4 +102,5 @@ class TaxResultView:
                 values=[amount_text(v) if isinstance(v,(int,float)) else ('' if v is None else str(v)) for v in row]
                 self.tree.insert('','end',values=values,tags=('review',))
             if start+100<len(sheet['rows']):self.frame.after(1,lambda:chunk(start+100))
+        self.fit_columns()
         chunk()

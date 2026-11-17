@@ -253,7 +253,7 @@ def discover(root, months):
     if problems: raise ValueError('\n'.join(problems))
     return found
 
-def run(root, months, label):
+def run(root, months, label, save=True):
     months = tuple(months)
     if not months or len(set(months)) != len(months) or any(m not in range(1,13) for m in months): raise ValueError('월 선택이 올바르지 않습니다.')
     files = discover(root, months)
@@ -276,8 +276,9 @@ def run(root, months, label):
                     if isinstance(cell.value,str): cell.data_type='s'
             ws.freeze_panes='D2'; ws.auto_filter.ref=ws.dimensions
             summary.append(summary_row(scope,kind,rows))
-    target=result_path('세금계산서 검증')
     format_report(wb)
+    if not save:return wb
+    target=result_path('세금계산서 검증')
     wb.save(target); wb.close()
     return target
 

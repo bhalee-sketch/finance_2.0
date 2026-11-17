@@ -8,6 +8,8 @@ from deposit_plan import find_catalog, read_catalog, plan_entry, save_plan, peri
 from account_verifier import account_key
 from ui_theme import dark_titlebar
 from deposit_search import search_catalog,resolve_catalog
+from fixed_deposit_database import DATABASE as FIXED_DATABASE,load_fixed_accounts,import_fixed_accounts
+from deposit_accounts import DATABASE as REGULAR_DATABASE,load_accounts
 
 
 def open_deposit(parent, desktop, center, open_file):
@@ -32,31 +34,29 @@ def open_deposit(parent, desktop, center, open_file):
         except ValueError:pass
     year.trace_add('write',default_date);month.trace_add('write',default_date)
     def settings():
+        if reader.busy:return
         if entries:
-            messagebox.showwarning('자료 설정','작성 중인 항목을 모두 삭제한 뒤 계좌 자료를 변경할 수 있습니다.',parent=window)
+            messagebox.showwarning('자료 설정','작성 중인 항목을 모두 삭제한 뒤 월별 계좌 자료를 갱신하세요.',parent=window)
             return
-        dialog=tk.Toplevel(window);dialog.title('계좌 자료 설정')
-        center(dialog,720,350);dark_titlebar(dialog);dialog.transient(window);dialog.grab_set()
-        panel=ttk.Frame(dialog,padding=20);panel.pack(fill='both',expand=True)
-        folder=tk.StringVar(value=root.get());fp=tk.StringVar(value=fixed_path.get());rp=tk.StringVar(value=regular_path.get())
-        def browse_folder():
-            selected=filedialog.askdirectory(parent=dialog)
-            if selected:folder.set(selected);fp.set('');rp.set('')
-        def browse_file(var):
-            selected=filedialog.askopenfilename(parent=dialog,initialdir=folder.get(),filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
-            if selected:var.set(selected)
-        for label,var,command in [('기본 폴더',folder,browse_folder),('정기예금 파일',fp,lambda:browse_file(fp)),('보통예금 파일',rp,lambda:browse_file(rp))]:
-            ttk.Label(panel,text=label).pack(anchor='w')
-            row=ttk.Frame(panel);row.pack(fill='x',pady=(3,10))
-            ttk.Entry(row,textvariable=var).pack(side='left',fill='x',expand=True)
-            ttk.Button(row,text='변경',command=command).pack(side='right',padx=(8,0))
-        ttk.Label(panel,text='파일을 지정하지 않으면 기본 폴더에서 자동으로 찾습니다.',style='Muted.TLabel').pack(anchor='w')
-        def close():
-            dialog.destroy()
-        def apply():
-            root.set(folder.get());fixed_path.set(fp.get());regular_path.set(rp.get());close();load()
-        dialog.protocol('WM_DELETE_WINDOW',close)
-        ttk.Button(panel,text='적용하고 불러오기',command=apply,style='Primary.TButton').pack(anchor='e',pady=12)
+        source=filedialog.askopenfilename(parent=window,title='월별 정기예금 원본 업로드',filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
+        if not source:return
+        database=Path(root.get())/'fixed_accounts.sqlite3'
+        def work():
+            report=import_fixed_accounts(source,database)
+            import shutil
+            archive=database.parent/'originals'
+            archive.mkdir(parents=True,exist_ok=True)
+            target=archive/(report['sha256'][:16]+'-'+Path(source).name)
+            if not target.exists():shutil.copy2(source,target)
+            return report
+        def done(report):
+            fixed_path.set(str(database))
+            window._latest_fixed_import=report
+            load()
+        def failed(exc):
+            status.set('원본 자료를 확인하세요. 이전 계좌 목록은 유지합니다.')
+            messagebox.showerror('자료 갱신 실패',str(exc),parent=window)
+        reader.run(work,done,failed)
     ttk.Button(header,text='자료 설정',command=settings).pack(side='right')
     body.pack(fill='both',expand=True)
     body.columnconfigure(0,weight=4,uniform='panes');body.columnconfigure(1,weight=5,uniform='panes');body.rowconfigure(0,weight=1)
@@ -79,20 +79,27 @@ def open_deposit(parent, desktop, center, open_file):
             messagebox.showwarning('목록 확인','등록된 해지 항목을 모두 삭제한 후 계좌정보를 다시 불러오세요.',parent=window);return
         folder=root.get();fixed_name=fixed_path.get();regular_name=regular_path.get()
         def work():
-            fp=Path(fixed_name) if fixed_name else find_catalog(folder,True)
-            rp=Path(regular_name) if regular_name else find_catalog(folder,False)
-            return fp,rp,read_catalog(fp,True),read_catalog(rp,False)
+            rp=Path(regular_name) if regular_name else REGULAR_DATABASE if REGULAR_DATABASE.exists() else find_catalog(folder,False)
+            regular_accounts=load_accounts(rp) if rp.suffix.lower()=='.sqlite3' else read_catalog(rp,False)
+            note=''
+            try:
+                local_database=Path(folder)/'fixed_accounts.sqlite3'
+                fp=Path(fixed_name) if fixed_name else local_database if local_database.exists() else FIXED_DATABASE if FIXED_DATABASE.exists() else find_catalog(folder,True)
+                fixed_accounts=load_fixed_accounts(fp) if fp.suffix.lower()=='.sqlite3' else read_catalog(fp,True)
+            except (ValueError,OSError) as exc:
+                fp=None;fixed_accounts={};note=str(exc)
+            return fp,rp,fixed_accounts,regular_accounts,note
         def done(value):
             nonlocal fixed,regular,foptions,roptions
-            fp,rp,f,r=value;fixed,regular=f,r
+            fp,rp,f,r,note=value;fixed,regular=f,r
             foptions={f"{v['account']} · {v['bank']} · {v['name']}":k for k,v in f.items()}
             roptions={f"{v['account']} · {v['bank']} · {v['name']}":k for k,v in r.items()}
             fbox.configure(values=[]);dbox.configure(values=[]);obox.configure(values=['원금과 같은 계좌'])
             fvalue.set('');dest.set('');other.set('원금과 같은 계좌')
-            fixed_path.set(str(fp));regular_path.set(str(rp))
-            counts.set(f'정기 {len(f)}개 · 보통 {len(r)}개')
+            fixed_path.set(str(fp) if fp else '');regular_path.set(str(rp))
+            counts.set(f'정기 {len(f)}개 · 원금 이체계좌 {len(r)}개')
             info.set('출금 계좌를 선택하면 원금이 표시됩니다.')
-            status.set('계좌와 금액을 입력하고 목록에 추가하세요.')
+            status.set('계좌와 금액을 입력하고 목록에 추가하세요.' if not note else '원금 이체계좌를 불러왔습니다. 자료 설정에서 정기예금 파일을 확인하세요. '+note)
         def failed(exc):
             nonlocal fixed,regular,foptions,roptions
             fixed={};regular={};foptions={};roptions={}
@@ -103,7 +110,7 @@ def open_deposit(parent, desktop, center, open_file):
             status.set('자료 설정에서 계좌 파일을 확인한 후 다시 불러오세요.')
             messagebox.showerror('계좌정보 확인',str(exc),parent=window)
         reader.run(work,done,failed)
-    ttk.Button(line,text='계좌 새로고침',command=load).pack(side='right')
+    ttk.Button(line,text='계획표 생성',command=lambda:generate(),style='Primary.TButton').pack(side='right')
     ttk.Label(left,text='출금할 정기예금 계좌').pack(anchor='w')
     fbox=ttk.Combobox(left,textvariable=fvalue,state='normal');fbox.pack(fill='x',pady=4)
     def show_principal(_=None):
@@ -210,5 +217,4 @@ def open_deposit(parent, desktop, center, open_file):
         status.set('해지계획표를 저장했습니다. 결과 파일을 엽니다.')
         try:open_file(path)
         except Exception as e:messagebox.showwarning('저장 완료 · 열기 실패',f'{path}\n\n{e}',parent=window)
-    ttk.Button(footer,text='계획표 생성  →',command=generate,style='Primary.TButton').pack(side='right',padx=(12,0))
     window.after(100,load)

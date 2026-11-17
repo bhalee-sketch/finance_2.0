@@ -1,0 +1,13 @@
+{
+  "source": "원본 FIXED.xls",
+  "sha256": "83c5f3162253f8693c03580c768e2ba9c4efa4e40f5c09e64389f4a22f840d6c",
+  "accounts": 75,
+  "excluded": {
+    "정기예금 외": 167,
+    "원금 없음": 1,
+    "법인 계좌": 29
+  },
+  "principal_total": "36638731085",
+  "verification": "Normalized account data matches the database",
+  "reference_verification": "All 75 normalized accounts match supplied fixed.xls"
+}

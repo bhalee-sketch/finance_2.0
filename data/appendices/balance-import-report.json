@@ -1,14 +1,7 @@
 {
   "fiscal_year": 2025,
-  "source_sha256": "5e6889fb04e2d8f852ac74df6bf7c5fda95fb654a19ceb71713652e50fcfafcb",
+  "source_sha256": "9954554b01c168fb49fe39b842841a49c630fa2db01078d56f69b2736a4263f4",
   "sheets": [
-    {
-      "sheet": "현금및예금명세서(회계단위분리)",
-      "rows_including_header": 115,
-      "columns": 9,
-      "nonempty_cells": 74,
-      "numeric_column_totals": {}
-    },
     {
       "sheet": "현금및예금명세서(전체)",
       "rows_including_header": 128,

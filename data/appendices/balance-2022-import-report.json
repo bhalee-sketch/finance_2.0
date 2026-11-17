@@ -1,0 +1,280 @@
+{
+  "fiscal_year": 2022,
+  "source_sha256": "5ee3a8d59b7257641c83e04086cf1ead0091dc96d6ff58814235a119163261af",
+  "sheets": [
+    {
+      "sheet": "현금및예금명세서(전체)",
+      "rows_including_header": 98,
+      "columns": 9,
+      "nonempty_cells": 363,
+      "numeric_column_totals": {
+        "8": "26457534136"
+      }
+    },
+    {
+      "sheet": "수표출납명세서",
+      "rows_including_header": 6,
+      "columns": 13,
+      "nonempty_cells": 21,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "선급금명세서",
+      "rows_including_header": 17,
+      "columns": 4,
+      "nonempty_cells": 34,
+      "numeric_column_totals": {
+        "3": "39317331"
+      }
+    },
+    {
+      "sheet": "가지급금명세서",
+      "rows_including_header": 5,
+      "columns": 4,
+      "nonempty_cells": 8,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "미수금및기타유동자산명세서",
+      "rows_including_header": 27,
+      "columns": 6,
+      "nonempty_cells": 115,
+      "numeric_column_totals": {
+        "3": "360888105",
+        "4": "48520000"
+      }
+    },
+    {
+      "sheet": "선급법인세명세서",
+      "rows_including_header": 298,
+      "columns": 9,
+      "nonempty_cells": 2324,
+      "numeric_column_totals": {
+        "4": "360516607",
+        "6": "50471400",
+        "7": "5045960",
+        "5": "2.80"
+      }
+    },
+    {
+      "sheet": "받을어음명세서",
+      "rows_including_header": 5,
+      "columns": 6,
+      "nonempty_cells": 10,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "투자와기타자산명세서",
+      "rows_including_header": 25,
+      "columns": 9,
+      "nonempty_cells": 138,
+      "numeric_column_totals": {
+        "4": "43258459255",
+        "5": "1229748492",
+        "6": "1699637628",
+        "7": "94112668"
+      }
+    },
+    {
+      "sheet": "투자유가증권 명세서",
+      "rows_including_header": 14,
+      "columns": 10,
+      "nonempty_cells": 48,
+      "numeric_column_totals": {
+        "5": "50000",
+        "6": "30000",
+        "7": "0"
+      }
+    },
+    {
+      "sheet": "적립기금 유가증권 투자 명세서",
+      "rows_including_header": 30,
+      "columns": 7,
+      "nonempty_cells": 51,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "적립기금 특수관계 유가증권투자명세서",
+      "rows_including_header": 15,
+      "columns": 9,
+      "nonempty_cells": 41,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "유형고정자산명세서",
+      "rows_including_header": 14,
+      "columns": 10,
+      "nonempty_cells": 85,
+      "numeric_column_totals": {
+        "2": "171168702333",
+        "3": "4772724824",
+        "4": "4226080560",
+        "6": "80531806308",
+        "7": "17172127347"
+      }
+    },
+    {
+      "sheet": "무형고정자산명세서",
+      "rows_including_header": 7,
+      "columns": 8,
+      "nonempty_cells": 25,
+      "numeric_column_totals": {
+        "2": "18170293",
+        "3": "2483150",
+        "4": "0"
+      }
+    },
+    {
+      "sheet": "고정자산명세서(상세)",
+      "rows_including_header": 104,
+      "columns": 17,
+      "nonempty_cells": 1214,
+      "numeric_column_totals": {
+        "5": "171186872626",
+        "6": "2580715428",
+        "7": "4226080560",
+        "9": "78653571973",
+        "10": "5388811969",
+        "12": "3036296343",
+        "14": "17172127347",
+        "11": "471148276"
+      }
+    },
+    {
+      "sheet": "단기(장기)차입금명세서",
+      "rows_including_header": 13,
+      "columns": 14,
+      "nonempty_cells": 113,
+      "numeric_column_totals": {
+        "4": "3671150000",
+        "5": "1678705890",
+        "6": "0",
+        "7": "363424000"
+      }
+    },
+    {
+      "sheet": "예수금명세서",
+      "rows_including_header": 31,
+      "columns": 6,
+      "nonempty_cells": 64,
+      "numeric_column_totals": {
+        "3": "591181796"
+      }
+    },
+    {
+      "sheet": "선수금명세서",
+      "rows_including_header": 18,
+      "columns": 4,
+      "nonempty_cells": 39,
+      "numeric_column_totals": {
+        "3": "11955792469"
+      }
+    },
+    {
+      "sheet": "미지급금명세서",
+      "rows_including_header": 26,
+      "columns": 7,
+      "nonempty_cells": 136,
+      "numeric_column_totals": {
+        "4": "493779609",
+        "5": "48520000"
+      }
+    },
+    {
+      "sheet": "가수금",
+      "rows_including_header": 6,
+      "columns": 4,
+      "nonempty_cells": 8,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "지급어음명세서",
+      "rows_including_header": 6,
+      "columns": 9,
+      "nonempty_cells": 13,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "어음출납명세서",
+      "rows_including_header": 7,
+      "columns": 13,
+      "nonempty_cells": 21,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "차관명세서",
+      "rows_including_header": 11,
+      "columns": 8,
+      "nonempty_cells": 21,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "학교채명세서",
+      "rows_including_header": 10,
+      "columns": 11,
+      "nonempty_cells": 27,
+      "numeric_column_totals": {}
+    },
+    {
+      "sheet": "기타고정부채명세서 ",
+      "rows_including_header": 113,
+      "columns": 9,
+      "nonempty_cells": 134,
+      "numeric_column_totals": {
+        "5": "6183400871",
+        "6": "94112668"
+      }
+    },
+    {
+      "sheet": "사용수익권명세서",
+      "rows_including_header": 24,
+      "columns": 7,
+      "nonempty_cells": 51,
+      "numeric_column_totals": {
+        "5": "17985234741"
+      }
+    },
+    {
+      "sheet": "적립금명세서",
+      "rows_including_header": 60,
+      "columns": 14,
+      "nonempty_cells": 192,
+      "numeric_column_totals": {
+        "3": "8320548822",
+        "4": "112910945",
+        "6": "1300852238"
+      }
+    },
+    {
+      "sheet": "기본금명세서",
+      "rows_including_header": 20,
+      "columns": 22,
+      "nonempty_cells": 100,
+      "numeric_column_totals": {
+        "3": "113042360811",
+        "4": "4904928697",
+        "5": "1699637628",
+        "6": "33878603113"
+      }
+    },
+    {
+      "sheet": "미사용자금(등록금)",
+      "rows_including_header": 20,
+      "columns": 6,
+      "nonempty_cells": 48,
+      "numeric_column_totals": {
+        "4": "21018198828"
+      }
+    },
+    {
+      "sheet": "미사용자금(비등록금)",
+      "rows_including_header": 33,
+      "columns": 6,
+      "nonempty_cells": 67,
+      "numeric_column_totals": {
+        "4": "14103652682"
+      }
+    }
+  ],
+  "verification": "All cell values, cached values, types, number formats and numeric column totals match"
+}

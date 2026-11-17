@@ -1,10 +1,13 @@
 """Financial statement cells share the direct cell-font renderer."""
 from numeric_tree import NumericTreeview
+from numeric_tree import numeric_text
 from qt_ui import C,G,W
 
 ROW_COLORS={'gwan':'#D7E7F5','hang':'#EAE3F6','mok':'#FFFFFF','total_green':'#D9EFE6'}
 SELECTION_COLOR='#E5E7EB'
 CURRENT_CELL_COLOR='#64748B'
+DARK_ROW_COLORS={'#D7E7F5':'#293F54','#EAE3F6':'#393047','#FFFFFF':'#231F30','#D9EFE6':'#254239',
+                 '#172638':'#EAE5F4','#E5E7EB':'#514261','#64748B':'#B99AEF'}
 
 
 class StatementHeader(W.QHeaderView):
@@ -36,8 +39,9 @@ class StatementCellDelegate(W.QStyledItemDelegate):
             text=styled.text;styled.text=''
             painter.save();painter.setClipRect(option.rect,C.Qt.ClipOperation.IntersectClip)
             view.style().drawControl(W.QStyle.ControlElement.CE_ItemViewItem,styled,painter,view)
-            painter.setFont(styled.font);painter.setPen(G.QColor('#172638'))
-            painter.drawText(option.rect.adjusted(5,3,-5,-3),styled.displayAlignment|C.Qt.TextFlag.TextWordWrap|C.Qt.TextFlag.TextWrapAnywhere,text)
+            painter.setFont(styled.font);painter.setPen(styled.palette.color(G.QPalette.ColorRole.Text))
+            flags=C.Qt.TextFlag.TextSingleLine if numeric_text(text) else C.Qt.TextFlag.TextWordWrap|C.Qt.TextFlag.TextWrapAnywhere
+            painter.drawText(option.rect.adjusted(5,3,-5,-3),styled.displayAlignment|flags,text)
             painter.restore()
         else:super().paint(painter,styled,index)
         if index==view.currentIndex() and view.selectionModel().isSelected(index):
@@ -49,6 +53,9 @@ class StatementCellDelegate(W.QStyledItemDelegate):
         view=self.parent()
         if not view.wordWrap():return super().sizeHint(option,index)
         styled=W.QStyleOptionViewItem(option);self.initStyleOption(styled,index)
+        if numeric_text(styled.text):
+            metrics=G.QFontMetrics(styled.font)
+            return C.QSize(metrics.horizontalAdvance(styled.text)+14,max(view.verticalHeader().defaultSectionSize(),metrics.height()+7))
         width=max(1,view.columnWidth(index.column())-11)
         rect=G.QFontMetrics(styled.font).boundingRect(C.QRect(0,0,width,100000),C.Qt.TextFlag.TextWordWrap|C.Qt.TextFlag.TextWrapAnywhere,styled.text)
         return C.QSize(width+11,max(view.verticalHeader().defaultSectionSize(),rect.height()+7))
@@ -63,7 +70,8 @@ class StatementGrid(NumericTreeview):
         self._q.horizontalHeader().setSortIndicatorShown(False)
         self._cell_grid=True
         self._q.setAlternatingRowColors(False)
-        self._q.setStyleSheet(f'QTableView {{background:#FFFFFF; color:#172638; selection-background-color:{SELECTION_COLOR}; selection-color:#172638;}} QTableView::item:selected {{background:{SELECTION_COLOR}; color:#172638;}}')
+        self.bind('<<ThemeChanged>>',self.apply_theme,add='+')
+        self.apply_theme()
         self._q.setItemDelegate(StatementCellDelegate(self._q))
 
     def _header_clicked(self,index):
@@ -71,8 +79,16 @@ class StatementGrid(NumericTreeview):
         pass
 
     def _color(self,value):
+        appearance=getattr(self._root(),'_appearance',None)
+        if appearance and appearance.theme=='dark' and isinstance(value,str) and value.upper() in DARK_ROW_COLORS:
+            return DARK_ROW_COLORS[value.upper()]
         if isinstance(value,str) and value.upper() in {*ROW_COLORS.values(),'#172638',SELECTION_COLOR,CURRENT_CELL_COLOR}:return value
         return super()._color(value)
+
+    def apply_theme(self,event=None):
+        background=self._color('#FFFFFF');text=self._color('#172638');selection=self._color(SELECTION_COLOR)
+        self._q.setStyleSheet(f'QTableView {{background:{background};color:{text};selection-background-color:{selection};selection-color:{text};gridline-color:{self._color(CURRENT_CELL_COLOR)};}} QTableView::item:selected {{background:{selection};color:{text};}}')
+        self._q.viewport().update()
 
     def fit_to_viewport(self,preferred,subject_column):
         """Apply fixed column widths, leaving unused viewport space empty."""
@@ -92,6 +108,15 @@ class StatementGrid(NumericTreeview):
                 self.after_idle(lambda:self.fit_to_viewport(*self._fit_request))
             self.proxy.layoutChanged.connect(sorted_rows)
         widths=list(preferred.values())
+        # Keep monetary values on one line, measuring the actual per-cell font,
+        # including numeric font preferences, text scaling and bold total rows.
+        for column in range(min(len(widths),self.proxy.columnCount())):
+            for row in range(self.proxy.rowCount()):
+                index=self.proxy.index(row,column)
+                text=str(index.data() or '')
+                if not numeric_text(text):continue
+                font=index.data(C.Qt.ItemDataRole.FontRole) or self._q.font()
+                widths[column]=max(widths[column],G.QFontMetrics(font).horizontalAdvance(text)+18)
         appearance=getattr(self._root(),'_appearance',None)
         fonts=(getattr(appearance,'family',''),getattr(appearance,'numeric_family',''))
         signature=(tuple(widths),self._q.font().toString(),fonts,tuple(self.model.rows))

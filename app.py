@@ -9,7 +9,6 @@ import queue
 import qt_ui as tk
 from qt_ui import ttk, filedialog, messagebox
 from verifier import PERIODS, run, year_folder, create_year_folders
-from account_verifier import yesterday, dated_folder, create_input_folder, run_account, find_inputs
 from ui_theme import apply_theme, dark_titlebar
 from deposit_ui import open_deposit
 from loan_ui import open_loans
@@ -40,84 +39,8 @@ def center_window(window, width, height):
 
 
 def open_account(parent):
-    window=tk.Toplevel(parent); window.title('예금시재 검증')
-    center_window(window,780,740);dark_titlebar(window)
-    frame=ttk.Frame(window,padding=24);frame.pack(fill='both',expand=True)
-    path=tk.StringVar(value=str(desktop()/'settings'/'account verification'))
-    day=tk.StringVar(value=yesterday())
-    cms=tk.StringVar();school=tk.StringVar()
-    ttk.Label(frame,text='예금시재 계좌별 검증',style='Section.TLabel').pack(anchor='w',pady=(0,16))
-    ttk.Label(frame,text='기본 폴더 (account verification)').pack(anchor='w')
-    ttk.Entry(frame,textvariable=path).pack(fill='x',pady=5)
-    def browse_root():
-        selected=filedialog.askdirectory(parent=window)
-        if selected: path.set(selected)
-    ttk.Button(frame,text='폴더 변경',command=browse_root).pack(anchor='e')
-    row=ttk.Frame(frame);row.pack(fill='x',pady=12)
-    ttk.Label(row,text='검증 날짜').pack(side='left',padx=(0,10))
-    ttk.Entry(row,textvariable=day,width=16).pack(side='left')
-    def create_folder():
-        try:
-            folder=create_input_folder(path.get(),day.get())
-            status.set(f'폴더 준비 완료: {folder}')
-            open_result_file(folder)
-        except (ValueError,OSError,subprocess.SubprocessError) as e:
-            messagebox.showwarning('폴더 확인',str(e),parent=window)
-    ttk.Button(row,text='검증파일 폴더 만들기',command=create_folder).pack(side='right')
-    ttk.Label(frame,text='기본 날짜는 어제입니다. 날짜 폴더에 CMS·학사 자료를 넣어 주세요.\n예: 2026-11-01/CMS계좌현황.xlsx, 학사계좌현황.xls',wraplength=660).pack(anchor='w',pady=10)
-    ttk.Label(frame,text='파일명으로 자동 검색합니다. 필요하면 아래에서 직접 선택하세요.').pack(anchor='w')
-    def select_file(variable):
-        try: initial=dated_folder(path.get(),day.get())
-        except ValueError: initial=Path(path.get())
-        selected=filedialog.askopenfilename(parent=window,initialdir=str(initial),filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
-        if selected:variable.set(selected)
-    for label,variable in [('CMS 파일',cms),('학사 파일',school)]:
-        line=ttk.Frame(frame);line.pack(fill='x',pady=8)
-        ttk.Label(line,text=label,width=10).pack(side='left')
-        ttk.Entry(line,textvariable=variable).pack(side='left',fill='x',expand=True)
-        ttk.Button(line,text='선택',command=lambda v=variable:select_file(v)).pack(side='right')
-    def reset_files(*_):
-        cms.set('');school.set('')
-    day.trace_add('write',reset_files);path.trace_add('write',reset_files)
-    def search_files():
-        reset_files()
-        try:
-            folder=dated_folder(path.get(),day.get())
-            cms_file,school_file=find_inputs(folder)
-            cms.set(str(cms_file));school.set(str(school_file))
-            status.set('폴더 검색 완료 · CMS와 학사 파일을 찾았습니다.')
-        except (ValueError,OSError) as e:
-            status.set('파일 검색 확인 필요')
-            messagebox.showwarning('파일 검색 결과',str(e),parent=window)
-    ttk.Button(frame,text='날짜 폴더에서 파일 찾기',command=search_files).pack(anchor='e')
-    status=tk.StringVar(value='검증 완료 후 결과를 저장하고 자동으로 엽니다.')
-    window._work_status=status
-    ttk.Label(frame,textvariable=status,wraplength=660,style='Muted.TLabel').pack(anchor='w',pady=16)
-    messages=queue.Queue();busy=False
-    def close():
-        if not busy:window.destroy()
-    window.protocol('WM_DELETE_WINDOW',close)
-    def poll():
-        nonlocal busy
-        try:success,result=messages.get_nowait()
-        except queue.Empty:window.after(100,poll);return
-        busy=False;button.configure(state='normal')
-        if success:
-            status.set(f'저장 완료: {result}')
-            try:open_result_file(result)
-            except (OSError,subprocess.SubprocessError) as e:
-                messagebox.showwarning('저장 완료 · 자동 열기 실패',f'{result}\n\n{e}',parent=window)
-        else:
-            status.set('자료 확인 필요');messagebox.showerror('검증 중단',result,parent=window)
-    def execute():
-        nonlocal busy
-        args=(path.get(),day.get(),cms.get() or None,school.get() or None)
-        busy=True;button.configure(state='disabled');status.set('계좌별 잔액을 검증하고 있습니다…')
-        def work():
-            try:messages.put((True,str(run_account(*args))))
-            except Exception as e:messages.put((False,str(e)))
-        threading.Thread(target=work,daemon=True).start();window.after(100,poll)
-    button=ttk.Button(frame,text='예금시재 검증 실행  →',command=execute,style='Primary.TButton');button.pack(fill='x',pady=10)
+    from account_ui import open_account_view
+    return open_account_view(parent,center_window,open_result_file)
 
 
 def main():
@@ -127,11 +50,19 @@ def main():
     from app_version import application_title
     root.title(application_title()); apply_theme(root)
     def open_tax():
-        window=tk.Toplevel(root); window.title('세금계산서 검증'); center_window(window,760,760); dark_titlebar(window)
+        window=tk.Toplevel(root); window.title('세금계산서 검증'); center_window(window,1120,760); dark_titlebar(window)
         frame=ttk.Frame(window,padding=24); frame.pack(fill='both',expand=True)
         path=tk.StringVar(value=str(desktop()/'settings'/'taxinvoice'))
-        ttk.Label(frame,text='세금계산서 검증',style='Section.TLabel').pack(anchor='w')
-        ttk.Entry(frame,textvariable=path).pack(fill='x',pady=10)
+        mode=tk.StringVar(value='월 단위 검증');choice=tk.StringVar(value='1월')
+        heading=ttk.Frame(frame);heading.pack(fill='x',pady=(0,8))
+        ttk.Label(heading,text='세금계산서 검증',style='Section.TLabel').pack(side='left',padx=(0,12))
+        preview=tk.StringVar()
+        path_note=ttk.Label(heading,textvariable=preview,style='Muted.TLabel',font=('맑은 고딕',9))
+        path_note._q.setMaximumWidth(600);path_note.pack(side='left',fill='x',expand=True)
+        def choose_path():
+            selected=filedialog.askdirectory(parent=window,title='세금계산서 자료 경로')
+            if selected:path.set(selected)
+        ttk.Button(heading,text='경로 변경',command=choose_path).pack(side='right')
         def open_month_folder():
             if mode.get()!='월 단위 검증':
                 messagebox.showinfo('월 폴더 열기','월 단위 검증에서 월을 선택하세요.',parent=window);return
@@ -139,7 +70,7 @@ def main():
                 folder=year_folder(path.get(),year.get())/choice.get()
                 folder.mkdir(parents=True,exist_ok=True);open_result_file(folder)
             except (ValueError,OSError) as e:messagebox.showerror('월 폴더 열기',str(e),parent=window)
-        folder_actions=ttk.Frame(frame);folder_actions.pack(fill='x')
+        folder_actions=ttk.Frame(frame)
         def reset_month_files():
             if busy:
                 messagebox.showinfo('초기화','검증이 끝난 후 초기화하세요.',parent=window);return
@@ -164,7 +95,8 @@ def main():
         year=tk.StringVar(value=str(date.today().year))
         year_row=ttk.Frame(frame); year_row.pack(fill='x',pady=12)
         ttk.Label(year_row,text='검증 연도').pack(side='left',padx=(0,10))
-        ttk.Spinbox(year_row,from_=1900,to=9999,textvariable=year,width=8).pack(side='left')
+        year_box=ttk.Combobox(year_row,textvariable=year,values=[str(y) for y in range(date.today().year+2,1999,-1)],state='readonly',width=7)
+        year_box.pack(side='left');year_box._q.setAccessibleName('검증 연도')
         def create_folders():
             try:
                 folder=create_year_folders(path.get(),year.get())
@@ -178,10 +110,10 @@ def main():
             from hometax_ui import open_hometax
             selected_month=int(choice.get()[:-1]) if mode.get()=='월 단위 검증' else PERIODS[choice.get()][0]
             open_hometax(window,path.get(),year.get(),selected_month,center_window,open_result_file)
-        button=ttk.Button(year_row,text='검증 실행',command=lambda:execute(),style='Primary.TButton',padding=(10,5))
+        button=ttk.Button(folder_actions,text='검증 실행',command=lambda:execute(),style='Primary.TButton',padding=(10,5))
         button.pack(side='right',padx=(8,0))
-        ttk.Button(year_row,text='미처리 상계',command=open_offset).pack(side='right',padx=(8,0))
-        ttk.Button(year_row,text='연도 폴더 만들기',command=create_folders).pack(side='right')
+        ttk.Button(folder_actions,text='미처리 상계',command=open_offset).pack(side='right',padx=(8,0))
+        ttk.Button(folder_actions,text='연도 폴더 만들기',command=create_folders).pack(side='right')
         def export_school():
             from school_export_ui import open_school_export
             if mode.get()!='월 단위 검증':
@@ -189,16 +121,15 @@ def main():
                 return
             selected_month=int(choice.get()[:-1])
             open_school_export(window,path.get(),year.get(),selected_month,center_window)
-        ttk.Button(folder_actions,text='학사 자료 저장',command=export_school).pack(side='left')
-        ttk.Button(folder_actions,text='홈택스 자료 내려받기',command=open_download).pack(side='left',padx=8)
-        preview=tk.StringVar()
+
         def update_preview(*_):
-            try: preview.set(f'검증 경로: {year_folder(path.get(),year.get())} / 선택한 월')
+            try:
+                preview.set(str(year_folder(path.get(),year.get())/choice.get()))
+                path_note._q.setToolTip(preview.get())
             except ValueError: preview.set('올바른 연도와 기본 폴더를 입력하세요.')
-        year.trace_add('write',update_preview); path.trace_add('write',update_preview)
+        year.trace_add('write',update_preview); path.trace_add('write',update_preview);choice.trace_add('write',update_preview)
         update_preview()
-        ttk.Label(frame,textvariable=preview,wraplength=610).pack(anchor='w')
-        mode=tk.StringVar(value='월 단위 검증'); choice=tk.StringVar(value='1월')
+
         ttk.Label(year_row,text='검증').pack(side='left',padx=(12,4))
         modes=ttk.Combobox(year_row,textvariable=mode,values=['월 단위 검증','신고기간 검증'],state='readonly',width=12); modes.pack(side='left')
         modes._q.setAccessibleName('검증 구분')
@@ -209,8 +140,36 @@ def main():
             values=[f'{m}월' for m in range(1,13)] if mode.get()=='월 단위 검증' else list(PERIODS)
             select.configure(values=values); choice.set(values[0])
         modes.bind('<<ComboboxSelected>>',change)
+        ttk.Button(year_row,text='학사 자료 저장',command=export_school).pack(side='left',padx=(24,6))
+        ttk.Button(year_row,text='홈택스 자료 내려받기',command=open_download).pack(side='left')
+        # Use one native row layout so labels and dropdowns share a vertical center.
+        from shiboken6 import delete as delete_qt_object
+        old_layout=year_row._q.layout();row_widgets=[]
+        while old_layout.count():
+            item=old_layout.takeAt(0)
+            if item.widget() is not None:row_widgets.append(item.widget())
+        delete_qt_object(old_layout)
+        aligned_row=tk.W.QHBoxLayout(year_row._q);aligned_row.setContentsMargins(0,0,0,0);aligned_row.setSpacing(8)
+        for widget in row_widgets:
+            if isinstance(widget,tk.W.QPushButton) and widget.text()=='학사 자료 저장':aligned_row.addSpacing(16)
+            aligned_row.addWidget(widget,0,tk.C.Qt.AlignmentFlag.AlignVCenter)
+        aligned_row.addStretch()
+        folder_actions.pack(fill='x',pady=(0,8))
+        verified_workbook=None;excel_path=None
+        def open_excel():
+            nonlocal excel_path
+            if verified_workbook is None or busy:return
+            try:
+                if excel_path is None or not Path(excel_path).exists():
+                    from result_paths import result_path
+                    excel_path=result_path('세금계산서 검증')
+                    verified_workbook.save(excel_path)
+                open_result_file(excel_path)
+            except (OSError,subprocess.SubprocessError) as exc:messagebox.showerror('Excel 열기',str(exc),parent=window)
+        excel_button=ttk.Button(folder_actions,text='엑셀로 열기',command=open_excel,state='disabled')
+        excel_button.pack(side='right',before=button,padx=(8,0))
         ttk.Label(frame,text='월별 홈택스·학사 자료 각 4종을 준비하고, 학사 조회 기간을 선택 월과 맞춰 주세요.',wraplength=1000).pack(fill='x',pady=(6,8))
-        status=tk.StringVar(value='검증 후 결과를 자동 저장하고 기본 연결 프로그램으로 엽니다.')
+        status=tk.StringVar(value='검증 결과는 화면에 표시합니다. 엑셀로 열기를 누르면 저장 후 엽니다.')
         window._work_status=status
         ttk.Label(frame,textvariable=status,wraplength=1000,style='Muted.TLabel').pack(side='bottom',fill='x',pady=6)
         from tax_result_view import TaxResultView,read_issue_sheets
@@ -218,22 +177,22 @@ def main():
         window._tax_results=results
         messages=queue.Queue(); busy=False
         def close():
-            if not busy: window.destroy()
+            if not busy:
+                if verified_workbook is not None:verified_workbook.close()
+                window.destroy()
         window.protocol('WM_DELETE_WINDOW',close)
         def poll():
-            nonlocal busy
+            nonlocal busy,verified_workbook,excel_path
             try: success, result=messages.get_nowait()
             except queue.Empty: window.after(100,poll); return
             busy=False; button.configure(state='normal'); status.set('검증 완료' if success else '자료 확인 필요')
             if success:
-                result,issue_sheets=result
+                workbook,issue_sheets=result
+                if verified_workbook is not None:verified_workbook.close()
+                verified_workbook=workbook;excel_path=None
+                excel_button.configure(state='normal')
                 results.set_results(issue_sheets)
-                status.set(f'차이·확인필요 {sum(len(sheet["rows"]) for sheet in issue_sheets):,}건 · 저장 완료: {result}')
-                try:
-                    open_result_file(result)
-                except (OSError, subprocess.SubprocessError) as e:
-                    messagebox.showwarning('저장 완료 · 자동 열기 실패',
-                        f'결과 파일은 저장되었습니다. 아래 파일을 직접 열어 주세요.\n\n{result}\n\n{e}',parent=window)
+                status.set(f'검증 완료 · 차이 {sum(len(sheet["rows"]) for sheet in issue_sheets):,}건 · Excel 저장은 엑셀로 열기를 누르세요.')
             else:
                 messagebox.showerror('검증 중단',result,parent=window)
         def execute():
@@ -244,11 +203,11 @@ def main():
                 messagebox.showerror('연도 설정 확인',str(e),parent=window)
                 return
             label=f'{year.get().strip()}_{choice.get()}'
-            busy=True; button.configure(state='disabled'); results.clear(); status.set('엑셀 자료를 검증하고 있습니다…')
+            busy=True; button.configure(state='disabled'); excel_button.configure(state='disabled'); results.clear(); status.set('엑셀 자료를 검증하고 있습니다…')
             def work():
                 try:
-                    result=run(folder,months,label)
-                    messages.put((True,(str(result),read_issue_sheets(result))))
+                    result=run(folder,months,label,save=False)
+                    messages.put((True,(result,read_issue_sheets(result))))
                 except Exception as e: messages.put((False,str(e)))
             threading.Thread(target=work,daemon=True).start(); window.after(100,poll)
 
@@ -288,6 +247,15 @@ def main():
             ('정기예금 해지계획표',lambda:open_deposit(root,desktop,center_window,open_result_file)),
             ('자금이체 문구 생성',lambda:open_transfer(root,desktop,center_window,open_result_file)),
             ('가수금 정산검증',suspense_view),
+        ]),
+        ('4. 재원·계좌 검증',[
+            ('지출계좌별 재원코드',lambda:open_macro(root,desktop,center_window,open_result_file,'expense')),
+            ('기부금계좌별 잔액',lambda:open_macro(root,desktop,center_window,open_result_file,'donation')),
+            ('임의기금 재원별 지출내역',lambda:open_macro(root,desktop,center_window,open_result_file,'fund')),
+        ]),
+        ('5. 통합 작업',[
+            ('원장통합',lambda:open_merge(root,desktop,center_window,open_result_file,True)),
+            ('재무제표 Excel 통합',lambda:open_merge(root,desktop,center_window,open_result_file)),
         ]),
     ]
     from app_profile import menu_groups,settings_path

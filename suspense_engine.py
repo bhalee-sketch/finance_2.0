@@ -22,7 +22,7 @@ class Candidate:
 
 
 def scope_applies(rule, a, b):
-    return (rule.get('kind','counterparty')=='counterparty' and rule.get('approved') is True and bool(rule.get('reason')) and bool(rule.get('approver'))
+    return (rule.get('kind','counterparty') in ('counterparty','counterparty_exception') and rule.get('approved') is True and bool(rule.get('reason')) and bool(rule.get('approver'))
             and (not rule.get('department') or a.department==b.department==rule['department'])
             and (not rule.get('start') or min(a.day,b.day).isoformat()>=rule['start'])
             and (not rule.get('end') or max(a.day,b.day).isoformat()<=rule['end'])

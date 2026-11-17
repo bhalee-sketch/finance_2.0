@@ -123,7 +123,7 @@ class Appearance:
         # Apply the family explicitly, retaining each control's size and weight.
         for native in tk.application().allWidgets():
             if native is self.root._q or self.root._q.isAncestorOf(native):
-                updated=previous_fonts.get(native,tk.G.QFont(native.font()));updated.setPointSizeF(max(1,updated.pointSizeF()*text_scale/previous_scale));updated.setFamilies([self.family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif']);native.setFont(updated)
+                updated=previous_fonts.get(native,tk.G.QFont(native.font()));updated.setPointSizeF(max(1,updated.pointSizeF()*text_scale/previous_scale));updated.setFamilies([self.family,'Malgun Gothic','맑은 고딕','Noto Sans CJK KR','sans-serif']);native.setFont(tk.readable_font(updated))
         for widget in list(tk._registry.values()):
             if not widget.winfo_exists():continue
             if isinstance(widget,tk.Window) and widget._q.isWindow():

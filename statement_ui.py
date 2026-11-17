@@ -307,6 +307,14 @@ def open_statement_view(parent,desktop,center,open_file):
     for tag,label,color,bold in palette:
         badge=tk.Label(legend,text=f'  {label}  ',font=('맑은 고딕',9,'bold' if bold else 'normal'))
         badge._q.setStyleSheet(f'background-color:{color}; color:#172638;');badge.pack(side='left',padx=(0,5))
+        def theme_badge(event=None,badge=badge,color=color):
+            from statement_grid import DARK_ROW_COLORS
+            appearance=getattr(badge._root(),'_appearance',None)
+            dark=appearance is not None and appearance.theme=='dark'
+            background=DARK_ROW_COLORS.get(color,color) if dark else color
+            foreground='#EAE5F4' if dark else '#172638'
+            badge._q.setStyleSheet(f'background-color:{background};color:{foreground};')
+        badge.bind('<<ThemeChanged>>',theme_badge,add='+');theme_badge()
     ttk.Label(legend,text='들여쓰기: 관 → 항 → 목   ·   선택 행: 회색',style='Muted.TLabel').pack(side='left',padx=10)
     style=ttk.Style(window)
     style.configure('Statement.Treeview',rowheight=26,font=('맑은 고딕',10))
@@ -315,7 +323,7 @@ def open_statement_view(parent,desktop,center,open_file):
     for tag,label,color,bold in palette:
         tree.tag_configure(tag,background=color,foreground='#172638',font=('맑은 고딕',10,'bold' if bold else 'normal'))
     for tag in ('marker_angle','marker_paren'):
-        tree.tag_configure(tag,background='#3D4962',foreground='#FFFFFF',font=('맑은 고딕',10,'bold'))
+        tree.tag_configure(tag,background='#3D4962',foreground='#E2E8F0',font=('맑은 고딕',10,'bold'))
     tree.bind('<Configure>',schedule_fit)
     tree.bind('<<ThemeChanged>>',schedule_fit)
     window.after_idle(window._q.show)

@@ -1,0 +1,85 @@
+{
+  "fiscal_year": 2023,
+  "source_sha256": "b27fa8dfef66be1fb402dc2398007287f8f66ad423512ef5e363a0c4d87aa571",
+  "sheets": [
+    {
+      "sheet": "등록금명세서",
+      "rows_including_header": 142,
+      "columns": 24,
+      "nonempty_cells": 1608,
+      "numeric_column_totals": {
+        "4": "207",
+        "6": "915",
+        "10": "8568",
+        "12": "164700000",
+        "16": "171900000",
+        "18": "3070508000",
+        "22": "30591547969",
+        "5": "6714",
+        "11": "3240000",
+        "17": "12492415400",
+        "7": "30",
+        "19": "105527145",
+        "8": "455",
+        "9": "243",
+        "13": "360000"
+      }
+    },
+    {
+      "sheet": "계절학기명세서",
+      "rows_including_header": 122,
+      "columns": 13,
+      "nonempty_cells": 262,
+      "numeric_column_totals": {
+        "4": "63",
+        "5": "1880",
+        "6": "0",
+        "7": "678408500"
+      }
+    },
+    {
+      "sheet": "단기수강료수입명세서",
+      "rows_including_header": 14,
+      "columns": 4,
+      "nonempty_cells": 32,
+      "numeric_column_totals": {
+        "3": "592379220"
+      }
+    },
+    {
+      "sheet": "전입금명세서",
+      "rows_including_header": 40,
+      "columns": 10,
+      "nonempty_cells": 121,
+      "numeric_column_totals": {
+        "9": "306195308",
+        "4": "3495000000",
+        "5": "300000000",
+        "6": "0"
+      }
+    },
+    {
+      "sheet": "예비비사용액명세서",
+      "rows_including_header": 9,
+      "columns": 7,
+      "nonempty_cells": 27,
+      "numeric_column_totals": {
+        "5": "156400000",
+        "6": "156400000"
+      }
+    },
+    {
+      "sheet": "고정자산 감가상각비명세서",
+      "rows_including_header": 14,
+      "columns": 11,
+      "nonempty_cells": 83,
+      "numeric_column_totals": {
+        "3": "154396551170",
+        "4": "80534939323",
+        "5": "4884379120",
+        "6": "1138197666"
+      }
+    }
+  ],
+  "verification": "All cell values, cached values, types, number formats and numeric column totals match"
+}

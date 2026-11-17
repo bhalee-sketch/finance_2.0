@@ -10,7 +10,7 @@ from openpyxl.utils import get_column_letter
 from verifier import excel_rows
 from account_verifier import amount
 
-TITLES = {'expense':'지출계좌별 재원코드 검증', 'donation':'기부금계좌잔액 검증', 'fund':'임의기금 지출 재원별 검증'}
+TITLES = {'expense':'지출계좌별 재원코드', 'donation':'기부금계좌별 잔액', 'fund':'임의기금 재원별 지출내역'}
 FOLDERS = {'expense':'expense verification','donation':'donation verification','fund':'fund verification'}
 def text(v):
     return '' if v is None else str(v).strip()

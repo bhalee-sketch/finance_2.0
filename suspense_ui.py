@@ -16,6 +16,29 @@ from ui_theme import dark_titlebar
 from responsive_ui import wrapping_row
 
 TABS=('매칭내역','미매칭 잔여','부서별 현황','거래처 규칙','예외 규칙 관리','원본 전체')
+RESIDUAL_COLUMNS=('번호','선택','회계단위','부서코드','회계일자','거래처명','적요','금액','정산금액','잔액','예적금정보')
+RESIDUAL_WIDTHS=(70,70,90,130,95,165,350,145,145,145,215)
+
+
+def residual_amount_totals(items):
+    return tuple(sum(int(str(item['values'][index]).replace(',','') or 0) for item in items) for index in (8,9,10))
+
+
+def fit_residual_columns(tree):
+    """Keep the reference column proportions independent of the displayed rows."""
+    tree.configure(displaycolumns=RESIDUAL_COLUMNS)
+    tree._width_preferences.locked.clear()
+    available=max(1,tree._q.viewport().width())
+    total=sum(RESIDUAL_WIDTHS)
+    widths=[int(available*weight/total) for weight in RESIDUAL_WIDTHS]
+    widths[-1]+=available-sum(widths)
+    for column,width in zip(RESIDUAL_COLUMNS,widths):
+        tree.column(column,width=width,minwidth=1,stretch=False)
+    header=tree._q.horizontalHeader()
+    header.setSectionsMovable(False)
+    header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+    header.setContextMenuPolicy(tk.C.Qt.ContextMenuPolicy.NoContextMenu)
+    header.setToolTip('고정 열 배치')
 
 
 def visible_matching_rows(result,tab,passes):
@@ -72,7 +95,6 @@ def open_suspense(parent,desktop,center,open_file):
         entry.dnd_bind('<<Drop>>',drop)
     except (ImportError,AttributeError,tk.TclError):pass
     entry.bind('<FocusOut>',lambda e: choose_file(path.get()) if path.get() and not sheet.get() else None)
-    bar=wrapping_row(body);bar.pack(fill='x',pady=8)
     reviewbar=wrapping_row(body);reviewbar.pack(fill='x',pady=(0,8))
     summary_label=ttk.Label(body,textvariable=overview,style='Accent.TLabel',wraplength=1180);summary_label.pack(fill='x',pady=(0,8))
     body.bind('<Configure>',lambda event:summary_label.configure(wraplength=max(280,event.width-28)),add='+')
@@ -102,6 +124,8 @@ def open_suspense(parent,desktop,center,open_file):
                 '예외 규칙 관리':('구분','규칙ID','상태','별칭','기간','부서','승인자','목적·근거')}
         trees[name]=table(frame,custom.get(name,columns))
         trees[name]._q.setProperty('compactRows',True)
+        from suspense_table import configure_detail_table
+        configure_detail_table(trees[name])
         widths={'구분':55,'매칭번호':155,'판정':100,'유형':75,'전표정보':100,'회계일자':95,'부서명':100,'거래선':110,'차변':110,'대변':110,'적요':260,'원본행':65,'배분':110,'차변 잔여':110,'대변 잔여':110,'탐색 상태':170}
         if name=='거래처 규칙':
             for col in custom[name]:trees[name].column(col,width=260,stretch=True)
@@ -111,7 +135,7 @@ def open_suspense(parent,desktop,center,open_file):
         if name=='부서별 현황':
             for col in ('잔여 건수','순잔액(대변−차변)'):trees[name].column(col,anchor='e')
         if name=='미매칭 잔여':
-            trees[name].configure(displaycolumns=tuple(col for col in custom[name] if col!='거래처코드'))
+            trees[name].configure(displaycolumns=RESIDUAL_COLUMNS)
             for col in custom[name]:
                 trees[name].column(col,width=130 if col in ('금액','정산금액','잔액') else 260 if col=='적요' else 180 if col=='예적금정보' else 110,anchor='e' if col in ('금액','정산금액','잔액') else 'w')
             for col in ('번호','선택'):trees[name].column(col,width=48,stretch=False,anchor='center')
@@ -132,15 +156,21 @@ def open_suspense(parent,desktop,center,open_file):
             display=list(tree['displaycolumns'])
             if display==['#all']:display=list(tree['columns'])
             available=max(1,tree._q.viewport().width())
-            width=max(1,available//max(1,len(display)))
-            for index,col in enumerate(display):
-                tree.column(col,width=width+(available-width*len(display) if index==len(display)-1 else 0),minwidth=1,stretch=False)
+            if active()=='미매칭 잔여':fit_residual_columns(tree)
+            else:
+                width=max(1,available//max(1,len(display)))
+                for index,col in enumerate(display):
+                    tree.column(col,width=width+(available-width*len(display) if index==len(display)-1 else 0),minwidth=1,stretch=False)
             tree._wrap_cells=False;tree._q.setWordWrap(False)
             tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             tree._q.verticalHeader().setDefaultSectionSize(max(26,tk.G.QFontMetrics(tree._q.font()).height()+6))
         layout_job=window.after(100,apply)
     for tree in trees.values():tree.bind('<Configure>',fit_current,add='+')
-    footer=wrapping_row(body);footer.pack(fill='x',pady=5);pager=tk.StringVar()
+    footer=ttk.Frame(body);footer.pack(side='bottom',fill='x',pady=5);pager=tk.StringVar()
+    sum_text=tk.StringVar()
+    sum_label=ttk.Label(footer,textvariable=sum_text,style='Accent.TLabel');sum_label.pack(fill='x')
+    sum_label._q.setAlignment(tk.C.Qt.AlignmentFlag.AlignRight|tk.C.Qt.AlignmentFlag.AlignVCenter)
+    window._residual_totals=sum_text
 
 
     def active():return notebook.tab(notebook.select(),'text')
@@ -204,6 +234,10 @@ def open_suspense(parent,desktop,center,open_file):
         if draw_job is not None:window.after_cancel(draw_job);draw_job=None
         draw_generation+=1;generation=draw_generation
         tree=trees[active()];tree.delete(*tree.get_children());items=shown;index=0
+        if active()=='미매칭 잔여':
+            amount,settled,balance=residual_amount_totals(items)
+            sum_text.set(f'조회 합계   금액 {amount:,}원   |   정산금액 {settled:,}원   |   잔액 {balance:,}원')
+        else:sum_text.set('')
         def append_rows():
             nonlocal index,draw_job
             draw_job=None
@@ -322,7 +356,7 @@ def open_suspense(parent,desktop,center,open_file):
                 f"차변 {metrics['원본 차변합계']:,}원 · 대변 {metrics['원본 대변합계']:,}원 · 잔여 순대차(차변−대변) {metrics['잔여 순대차잔액(차변−대변)']:,}원")
             refresh();status.set('검산 실패 — 정상 완료가 아닙니다.' if not value['validation']['ok'] else '탐색 미완료가 있습니다. 조건부매칭·미매칭 잔여를 확인하세요.' if value['incomplete'] else '검산 완료 · 조건부매칭은 회계상 정산 확정이 아닙니다.')
         launch(work,done)
-    button(bar,'정산검증 실행',execute).configure(style='Primary.TButton')
+    button(source,'정산검증 실행',execute).configure(style='Primary.TButton')
     def form(title,fields,callback,save_text="저장 및 재검증"):
         dialog=tk.Toplevel(window);dialog.title(title);dialog.transient(window);dark_titlebar(dialog)
         center(dialog,780,min(700,100+len(fields)*42))
@@ -341,36 +375,11 @@ def open_suspense(parent,desktop,center,open_file):
             dialog.destroy()
         ttk.Button(panel,text=save_text,command=accept).grid(row=len(fields),column=1,sticky='e',pady=8)
         dialog.grab_set()
-    def approve():
-        if result is None:return
-        chosen=selected();ids=set().union(*(item['ids'] for item in chosen)) if chosen else set()
-        if not ids:messagebox.showinfo('거래 승인','원본 전체 또는 미매칭 잔여에서 관련 대변·차변을 선택하세요.',parent=window);return
-        byid={t.row_id:t for t in result['ledger']['rows']}
-        if any(not byid[i].side for i in ids):messagebox.showerror('거래 승인','음수·0원·양변 거래는 자동 배분 승인 대상이 아닙니다.',parent=window);return
-        fields=[('승인자',''),('승인 근거','')];alloc={}
-        candidate=chosen[0]['group'] if len(chosen)==1 else None
-        defaults=dict(candidate.allocations) if candidate else {}
-        for i in sorted(ids):fields.append((f'{byid[i].row}행 {byid[i].side} 배분(원)',str(defaults.get(i,byid[i].value))))
-        def save(values):
-            for i in sorted(ids):alloc[i]=int(values[f'{byid[i].row}행 {byid[i].side} 배분(원)'].replace(',',''))
-            cs=tuple(i for i in ids if byid[i].side=='C');ds=tuple(i for i in ids if byid[i].side=='D')
-            test=Candidate('manual',cs,ds,'승인',1000,(),'사용자 승인',tuple(alloc.items()))
-            if not cs or not ds or not validate(result['ledger']['rows'],[test])['ok']:raise ValueError('배분액이 원금 이하이며 차변·대변 합계가 같아야 합니다.')
-            updated=deepcopy(settings);action(updated,result['ledger'],ids,'approve',values['승인자'],values['승인 근거'],alloc);save_manual(updated)
-        form('선택 거래 매칭 (원 단위 배분)',fields,save,save_text='매칭 저장')
-    def release():
-        if result is None:return
-        chosen=selected();ids=set().union(*(i['group'].ids if i['group'] else i['ids'] for i in chosen)) if chosen else set()
-        if not ids:return
-        def save(values):
-            updated=deepcopy(settings);blocked=[c.id for c in result['candidates'] if c.ids&ids]
-            action(updated,result['ledger'],ids,'release',values['승인자'],values['해제 근거'],blocked=blocked);execute(updated,True)
-        form('관련 그룹 전체 해제·후보 제외',[('승인자',''),('해제 근거','')],save)
     def persist_rules(updated):
         nonlocal settings
         save_settings(settings_path,updated);settings=updated
         if result is not None:result['settings']=updated
-        refresh();status.set('거래처 규칙을 저장했습니다. 다음 정산검증 실행부터 적용됩니다. 기존 매칭은 유지합니다.')
+        refresh();status.set('규칙을 저장했습니다. 다음 정산검증 실행부터 적용됩니다. 기존 매칭은 유지합니다.')
     def alias():
         def save(values):
             updated=deepcopy(settings);add_alias(updated,*(values[k] for k in ('원본 거래처','대응 거래처','적용 부서')))
@@ -422,20 +431,10 @@ def open_suspense(parent,desktop,center,open_file):
     button(reviewbar,'매칭 실행',manual_match)
     button(reviewbar,'매칭 건 교체',reassign)
     button(filters,'매칭내역 보기',detail)
-    button(reviewbar,'선택 승인·변경',approve);button(reviewbar,'선택 해제',release).configure(style='Caution.TButton')
-    def disable_alias():
-        if active()!='예외 규칙 관리' or not selected():return
-        rule_id=selected()[0]['values'][1]
-        def save(values):
-            if not values['승인자'] or not values['해제 근거']:raise ValueError('승인자와 근거를 입력하세요.')
-            from datetime import datetime,timezone
-            updated=deepcopy(settings)
-            for rule in updated.get('aliases',[]):
-                if rule['id']==rule_id:rule['approved']=False
-            updated.setdefault('alias_events',[]).append({'rule_id':rule_id,'action':'disable','approver':values['승인자'],'reason':values['해제 근거'],'timestamp':datetime.now(timezone.utc).isoformat()})
-            execute(updated,True)
-        form('예외 규칙 해제',[('승인자',''),('해제 근거','')],save)
-    button(reviewbar,'규칙 해제',disable_alias).configure(style='Caution.TButton')
+    def register_exception():
+        from suspense_exceptions import open_registration
+        open_registration(window,settings,persist_rules,center)
+    button(reviewbar,'예외규칙 등록',register_exception)
     def open_current_view():
         if result is None or busy:return
         try:

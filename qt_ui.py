@@ -105,6 +105,13 @@ class DoubleVar(Variable):
     default=0.
     def convert(self,v):return float(v or 0)
 
+def readable_font(font):
+    """Preserve thin Hangul strokes instead of snapping them to the pixel grid."""
+    font.setHintingPreference(G.QFont.HintingPreference.PreferNoHinting)
+    font.setStyleStrategy(G.QFont.StyleStrategy.PreferAntialias)
+    return font
+
+
 class Font:
     def __init__(self,root=None,font=None,name=None,**kw):
         application()
@@ -121,6 +128,7 @@ class Font:
         if 'size' in kw:self.q.setPointSize(max(1,abs(int(kw['size']))))
         if 'weight' in kw:self.q.setBold(kw['weight']=='bold')
         if 'slant' in kw:self.q.setItalic(kw['slant']=='italic')
+        readable_font(self.q)
     config=configure
     def actual(self,option=None):
         values={'family':G.QFontInfo(self.q).family(),'size':self.q.pointSize(),'weight':'bold' if self.q.bold() else 'normal','slant':'italic' if self.q.italic() else 'roman','underline':int(self.q.underline()),'overstrike':int(self.q.strikeOut())}

@@ -87,6 +87,7 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
     from qt_ui import ttk,messagebox
     from statement_ui import table
     from ui_theme import dark_titlebar
+    from pathlib import Path
     dialog=tk.Toplevel(parent,show_on_create=False);dialog.title('매칭하기');dialog.transient(parent);dark_titlebar(dialog)
     screen=parent._q.screen().availableGeometry()
     center(dialog,min(1180,screen.width()-40),min(680,screen.height()-60))
@@ -101,9 +102,15 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
         totals.set(f'선택 차변 잔액 {debit:,}원  |  선택 대변 잔액 {credit:,}원  |  매칭 후 잔액 {credit-debit:,}원')
         save_button.configure(state='normal' if 0<debit<=credit else 'disabled')
     def save():
+        nonlocal result,settings
         try:updated=prepare_match(result,settings,{i:amounts[i] for i in selected},'사용자 직접 매칭','선택한 잔액으로 매칭',allow_partial=True)
         except ValueError as exc:messagebox.showerror('매칭 확인',str(exc),parent=dialog);return
-        if on_save(updated) is not False:dialog.destroy()
+        try:new_result=apply_manual_match(result,updated)
+        except ValueError as exc:messagebox.showerror('매칭 확인',str(exc),parent=dialog);return
+        if on_save(updated) is False:return
+        result=new_result;settings=updated
+        selected.clear();populate()
+        totals.set('매칭을 저장했습니다. 다음 내역을 선택하세요.')
     save_button=ttk.Button(toolbar,text='매칭하기',command=save,style='Primary.TButton');save_button.pack(side='right')
     ttk.Button(toolbar,text='취소',command=dialog.destroy).pack(side='right',padx=8)
     ttk.Label(outer,textvariable=totals).pack(fill='x',pady=(0,6))
@@ -115,12 +122,9 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
         tree._q.horizontalHeader().setSectionsClickable(False);tree._q.horizontalHeader().setSortIndicatorShown(False)
         tree._q.setWordWrap(False)
         tree._q.setProperty('compactRows',True)
+        from suspense_table import configure_detail_table
+        configure_detail_table(tree)
         tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        for t in sorted(byid.values(),key=lambda t:(t.day,t.row)):
-            residual=sum(result['validation']['residual'][t.row_id])
-            if t.side!=side or residual<=0:continue
-            amounts[t.row_id]=residual
-            tree.insert('','end',iid=t.row_id,values=('',t.day.isoformat(),t.department,t.counterparty,f'{residual:,}'))
         def fit(event=None,t=tree):
             available=max(1,t._q.viewport().width())
             weights=(.09,.23,.23,.23,.22)
@@ -128,17 +132,30 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
             for col,width in zip(t['columns'],widths):t.column(col,width=width,minwidth=1,stretch=False,anchor='e' if col=='잔액' else 'w')
             t._q.verticalHeader().setDefaultSectionSize(max(28,tk.G.QFontMetrics(t._q.font()).height()+6))
         tree.bind('<Configure>',fit,add='+');tree.after_idle(fit)
-        for identity in tree.get_children():
-            row=tree.model.rows.index(identity)
-            index=tree.proxy.mapFromSource(tree.model.index(row,0))
-            holder=tk.W.QWidget();layout=tk.W.QHBoxLayout(holder);layout.setContentsMargins(0,0,0,0)
-            check=tk.W.QCheckBox();check.setAccessibleName('거래 선택 '+identity)
-            check.setStyleSheet('QCheckBox::indicator {width:22px;height:22px;}')
-            check.setChecked(identity in selected);layout.addWidget(check,0,tk.C.Qt.AlignmentFlag.AlignCenter)
-            def toggle(checked,identity=identity):
-                selected.add(identity) if checked else selected.discard(identity)
-                update()
-            check.toggled.connect(toggle);tree._q.setIndexWidget(index,holder)
+    def populate():
+        amounts.clear()
+        for side,tree in trees.items():
+            tree.delete(*tree.get_children())
+            for t in sorted(byid.values(),key=lambda t:(t.day,t.row)):
+                residual=sum(result['validation']['residual'][t.row_id])
+                if t.side!=side or residual<=0:continue
+                amounts[t.row_id]=residual
+                tree.insert('','end',iid=t.row_id,values=('',t.day.isoformat(),t.department,t.counterparty,f'{residual:,}'))
+            for identity in tree.get_children():
+                row=tree.model.rows.index(identity)
+                index=tree.proxy.mapFromSource(tree.model.index(row,0))
+                holder=tk.W.QWidget();layout=tk.W.QHBoxLayout(holder);layout.setContentsMargins(0,0,0,0)
+                check=tk.W.QCheckBox();check.setAccessibleName('거래 선택 '+identity)
+                check.setFixedSize(20,20)
+                check.setStyleSheet('QCheckBox {background:transparent;padding:0;} QCheckBox::indicator {width:14px;height:14px;border:1px solid #91859F;border-radius:2px;background:#FFFFFF;} QCheckBox::indicator:checked {background:#7651AD;image:url("'+(Path(__file__).resolve().parent/'assets'/'check.svg').as_posix()+'");}')
+                check.setChecked(identity in selected);layout.addWidget(check,0,tk.C.Qt.AlignmentFlag.AlignCenter)
+                def toggle(checked,identity=identity):
+                    selected.add(identity) if checked else selected.discard(identity)
+                    update()
+                check.toggled.connect(toggle);tree._q.setIndexWidget(index,holder)
+        selected.intersection_update(amounts)
+        update()
+    populate()
     selected.intersection_update(amounts)
     dialog._match_trees=trees
     dialog._match_totals=totals

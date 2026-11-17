@@ -146,11 +146,10 @@ def style_account_report(wb):
         cell.number_format = '@'
 
 
-def run_account(root, day, cms_path=None, school_path=None):
-    folder = dated_folder(root,day)
+def run_account(root, day, cms_path=None, school_path=None, save=True):
     if bool(cms_path) != bool(school_path):
         raise ValueError('CMS 파일과 학사 파일을 모두 선택하세요.')
-    cms_path, school_path = (Path(cms_path),Path(school_path)) if cms_path and school_path else find_inputs(folder)
+    cms_path, school_path = (Path(cms_path),Path(school_path)) if cms_path and school_path else find_inputs(dated_folder(root,day))
     if cms_path.resolve() == school_path.resolve():
         raise ValueError('CMS와 학사 자료에 서로 다른 파일을 선택하세요.')
     cms, cw = read_accounts(cms_path,True)
@@ -176,6 +175,7 @@ def run_account(root, day, cms_path=None, school_path=None):
             for cell in row:
                 if isinstance(cell.value,str): cell.data_type='s'
     style_account_report(wb)
+    if not save:return wb
     target=result_path('예금시재 검증')
     wb.save(target);wb.close()
     return target
