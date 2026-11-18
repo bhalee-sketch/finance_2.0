@@ -15,8 +15,6 @@ def allowed(name):
     if path.is_absolute() or '..' in path.parts:return False
     if len(path.parts)==1:
         return path.suffix in ('.py','.pyw') or name in ('requirements.txt','source_start.bat','SOURCE_TEST_README.md')
-    if path.parts[:-1]==('data','loans','originals'):
-        return path.suffix.lower() in ('.xlsx','.xls','.xlsm') and not path.name.startswith(('.','~$'))
     return path.parts[0] in ('assets','templates','scripts') and not any(p.startswith('.') or p=='__pycache__' for p in path.parts)
 
 

@@ -87,10 +87,10 @@ def load_audit_sources(settings,year=None):
     return result
 
 
-def load_program_reserves(settings,year,statement):
+def load_program_reserves(settings,year,statement,*,statement_record=None):
     from reserve_review import load_reserves
     def ledger(settings,year):
         path=program_ledger_paths(settings).get(str(year))
         if path is None:raise ValueError('선택연도 원장 자료가 없습니다.')
         return path,load_program_ledger(path,year)
-    return load_reserves(settings,year,statement,ledger_loader=ledger)
+    return load_reserves(settings,year,statement,ledger_loader=ledger,statement_record=statement_record)

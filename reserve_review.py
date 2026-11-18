@@ -62,12 +62,12 @@ def securities_principal(path):
     finally:book.close()
 
 
-def load_reserves(settings,year,statement,*,ledger_loader=None):
+def load_reserves(settings,year,statement,*,ledger_loader=None,statement_record=None):
     settings=Path(settings);values={};sources={};issues=[]
     def read(key,task,source):
         try:values[key]=task();sources[key]=source
         except Exception as exc:values[key]=None;issues.append(f'{key}: {exc}')
-    record=load_statement_record_from_path(statement)
+    record=load_statement_record_from_path(statement) if statement_record is None else statement_record
     read('reserve_total',lambda:current_amount(record,'임의적립금',1),str(statement)+' · 전체/임의적립금(항)/당기')
     read('building_reserve',lambda:current_amount(record,'임의건축적립금',2),str(statement)+' · 전체/임의건축적립금(목)/당기')
     def transferred():

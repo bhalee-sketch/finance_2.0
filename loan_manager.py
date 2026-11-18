@@ -5,7 +5,9 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
-from tempfile import NamedTemporaryFile
+from shutil import copyfile, copyfileobj
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from zipfile import ZipFile
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.datetime import from_excel, WINDOWS_EPOCH, MAC_EPOCH
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -15,7 +17,7 @@ from loan_report_style import apply_loan_sample
 
 ZERO=Decimal(0)
 HEADERS=['예정 원금','예정 총이자','총원리금','납부원금','납부 총이자','총 납부 원리금','상태']
-BUNDLED_LOAN_DIR=Path(__file__).resolve().parent/'data'/'loans'/'originals'
+LOAN_EXCEL_SUFFIXES=('.xlsx','.xls','.xlsm')
 
 
 def target_year(value):
@@ -30,7 +32,7 @@ def find_loan_files(root):
     if not root.is_dir():raise ValueError(f'원자료 폴더가 없습니다: {root}')
     unsupported=[p.name for p in root.iterdir() if p.is_file() and p.suffix.lower()=='.xlsb' and not p.name.startswith('~$')]
     if unsupported:raise ValueError('.xlsb 파일은 .xlsx로 저장해 주세요: '+', '.join(unsupported))
-    files=sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() in ('.xlsx','.xls','.xlsm') and not p.name.startswith('~$'))
+    files=sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() in LOAN_EXCEL_SUFFIXES and not p.name.startswith('~$'))
     if not files:raise ValueError(f'차입금 원자료 Excel 파일이 없습니다: {root}')
     return files
 
@@ -205,10 +207,54 @@ def build_loan_report(root,year,*,source_label=None):
     return wb
 
 
-def build_bundled_loan_report(year):
-    if not BUNDLED_LOAN_DIR.is_dir():
-        raise ValueError('프로그램에 포함된 차입금 원자료가 없습니다.')
-    return build_loan_report(BUNDLED_LOAN_DIR,year,source_label='프로그램 내장 자료')
+def upload_loan_sources(paths, storage):
+    """Validate a complete replacement batch before committing it as one file."""
+    sources = [Path(path) for path in paths]
+    if not sources:
+        raise ValueError('차입금 원자료 파일을 하나 이상 선택하세요.')
+    names = set()
+    for source in sources:
+        if source.suffix.lower() not in LOAN_EXCEL_SUFFIXES or source.name.startswith('~$') or '\\' in source.name:
+            raise ValueError(f'지원하지 않는 차입금 원자료입니다: {source.name}')
+        key = source.name.casefold()
+        if key in names:
+            raise ValueError(f'같은 이름의 파일이 여러 개 있습니다: {source.name}')
+        names.add(key)
+
+    storage = Path(storage)
+    with TemporaryDirectory(prefix='loan-upload-') as folder:
+        copies = []
+        for source in sources:
+            copy = Path(folder)/source.name
+            copyfile(source, copy)
+            analyze(copy, defaultdict(lambda: [ZERO, ZERO]), defaultdict(lambda: [ZERO, ZERO]), [])
+            copies.append(copy)
+
+        storage.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(dir=storage.parent, suffix='.tmp', delete=False) as stream:
+            temporary = Path(stream.name)
+        try:
+            with ZipFile(temporary, 'w') as archive:
+                for copy in copies:
+                    archive.write(copy, arcname=copy.name)
+            temporary.replace(storage)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return len(sources)
+
+
+def build_uploaded_loan_report(storage, year):
+    if not Path(storage).is_file():
+        raise ValueError('자료 업로드에서 차입금 원자료를 먼저 선택하세요.')
+    with TemporaryDirectory(prefix='loan-report-') as folder:
+        with ZipFile(storage) as archive:
+            for member in archive.infolist():
+                name = member.filename
+                if Path(name).name != name or '\\' in name or Path(name).suffix.lower() not in LOAN_EXCEL_SUFFIXES:
+                    raise ValueError('저장된 차입금 자료를 읽을 수 없습니다. 다시 업로드하세요.')
+                with archive.open(member) as source, (Path(folder)/name).open('xb') as copy:
+                    copyfileobj(source, copy)
+        return build_loan_report(folder, year, source_label='최근 업로드 자료')
 
 
 def save_loan_report(wb):

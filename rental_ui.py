@@ -1,6 +1,7 @@
 """Rental deposits, normalized rent and contract-date-adjusted revenue outlook."""
 from datetime import date
 from decimal import Decimal
+import re
 import qt_ui as tk
 from qt_ui import ttk,messagebox
 from finance_ui import shell,fill
@@ -8,9 +9,31 @@ from responsive_ui import wrapping_row
 from statement_ui import table,Jobs
 from statement_catalog import amount_text
 from analysis_charts import bars
-from rental_data import load_rentals,status,forecasts,contract_pdfs,table_rows,HEADERS,rounded_won,grouped_forecasts,update_rental,create_rental,clean
+from rental_data import load_rentals,status,forecasts,contract_pdfs,table_rows,HEADERS,rounded_won,grouped_forecasts,update_rental,create_rental,clean,parse_date
 
-CONTRACT_COLUMN_WIDTHS = (78, 137, 246, 89, 124, 154, 66, 101, 119, 104, 89, 112, 265)
+CONTRACT_COLUMN_WIDTHS = (78, 137, 246, 89, 124, 154, 66, 101, 119, 104, 89, 84, 130)
+PERIOD_COLUMN = HEADERS.index('임대기간')
+CONTRACT_BUTTON_COLUMN = HEADERS.index('계약서 보기')
+
+
+class PeriodDelegate(tk.W.QStyledItemDelegate):
+    def __init__(self,parent):
+        super().__init__(parent)
+        self.family=tk.G.QFontDatabase.systemFont(tk.G.QFontDatabase.SystemFont.FixedFont).family()
+
+    def initStyleOption(self,option,index):
+        super().initStyleOption(option,index)
+        # Equal digit advances keep dates containing repeated ones the same width.
+        option.font.setFamily(self.family)
+
+
+def display_period(value):
+    parts=re.split(r'\s*[~～]\s*',value)
+    if len(parts)==2:
+        start,end=map(parse_date,parts)
+        if start and end:
+            return f'{start:%Y.%m.%d} ~ {end:%Y.%m.%d}'
+    return value
 
 
 def open_rentals(parent,desktop,center,open_file):
@@ -72,9 +95,38 @@ def open_rentals(parent,desktop,center,open_file):
     note(text='연 임대수익 우선 · 월 환산 = 연액 ÷ 12 · 월별 예상은 계약 유효일수로 안분 · 달력연도 기준\n실제 납부시점·자동 갱신·부가세 가감은 미반영합니다. 보증금은 원자료 기재액이며 반환 여부를 판정하지 않습니다.').pack(fill='x',pady=6)
     notebook=ttk.Notebook(body);notebook.pack(fill='both',expand=True)
     contract_tab=ttk.Frame(notebook);notebook.add(contract_tab,text='계약 및 보증금')
-    tree=table(contract_tab,HEADERS,column_preferences=False)
+    tree=table(contract_tab,HEADERS,horizontal_scroll=False,column_preferences=False)
     tree.configure(selectmode='browse',style='Rental.Treeview')
-    tree._q.horizontalHeader().setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+    view=tree._q
+    view.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    header=view.horizontalHeader()
+    header.setMinimumSectionSize(1)
+    header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+    period_delegate=PeriodDelegate(view)
+    view.setItemDelegateForColumn(PERIOD_COLUMN,period_delegate)
+
+    def fit_contract_columns(event=None):
+        available=view.viewport().width()
+        if available<len(CONTRACT_COLUMN_WIDTHS) or header.count()!=len(CONTRACT_COLUMN_WIDTHS):
+            return
+        widths=list(CONTRACT_COLUMN_WIDTHS)
+        period_font=tk.G.QFont(tree._font().q)
+        period_font.setFamily(period_delegate.family)
+        period_width=tk.G.QFontMetrics(period_font).horizontalAdvance('0000.00.00 ~ 0000.00.00')+8
+        widths[PERIOD_COLUMN]=max(widths[PERIOD_COLUMN],period_width)
+        # Give up optional notes space before compressing the transaction columns.
+        widths[-1]=max(54,min(widths[-1],available-sum(widths[:-1])))
+        total=sum(widths)
+        if total>available:
+            button_width=min(76,available//5)
+            other_width=total-widths[CONTRACT_BUTTON_COLUMN]
+            widths=[max(1,width*(available-button_width)//other_width) for width in widths]
+            widths[CONTRACT_BUTTON_COLUMN]=button_width
+        for i,(column,width) in enumerate(zip(tree.cget('columns'),widths)):
+            if header.sectionSize(i)!=width:
+                tree.column(column,width=width,stretch=False)
+
+    tree.bind('<Configure>',fit_contract_columns,add='+')
     ttk.Style(tree).configure('Rental.Treeview',rowheight=30)
     from rental_row_buttons import ContractButtons
     pdf_buttons=ContractButtons(tree,lambda record:view_contract(record))
@@ -84,10 +136,14 @@ def open_rentals(parent,desktop,center,open_file):
     plots=ttk.Frame(forecast_tab);plots.pack(fill='both',expand=True)
     canvas=tk.Canvas(plots,bg='#192131',highlightthickness=0,width=1,height=260)
     annual_canvas=tk.Canvas(plots,bg='#192131',highlightthickness=0,width=1,height=260)
+    for chart in (canvas,annual_canvas):
+        # Plot scene bounds must not turn into a minimum width for the whole tab.
+        chart._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Ignored)
+        chart._q.setMinimumHeight(220)
     layout_mode=None
     def layout(event):
         nonlocal layout_mode
-        wide=event.width>=1000
+        wide=event.width>=1150
         if wide==layout_mode:return
         layout_mode=wide
         canvas.grid_forget();annual_canvas.grid_forget()
@@ -133,10 +189,11 @@ def open_rentals(parent,desktop,center,open_file):
         projection=forecasts(shown,yr);excluded=max((r[2] for r in projection),default=0)
         values[3].set(amount_text(rounded_won(sum((r[1] for r in projection),Decimal(0))))+'원'+(f' ({excluded}건 제외)' if excluded else ''))
         rows=table_rows(shown,ref)
+        for row in rows:
+            row[PERIOD_COLUMN]=display_period(row[PERIOD_COLUMN])
         totals=['확인금액 합계','','','','','','',*[rounded_won(sum((r[k] for r in shown if r[k] is not None),Decimal(0))) for k in ('deposit','monthly','annual')],'','','']
         fill(tree,HEADERS,rows+[totals],(7,8,9))
-        for i,width in enumerate(CONTRACT_COLUMN_WIDTHS):
-            tree.column(str(i),width=width,stretch=False)
+        fit_contract_columns()
         for name in ('사업자등록번호','상태','납부구분'):
             tree.column(str(HEADERS.index(name)),anchor='center')
         tree.tag_configure('attention',foreground='#E9B875');tree.tag_configure('total',background='#244C70',foreground='#FFFFFF')

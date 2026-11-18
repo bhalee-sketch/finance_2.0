@@ -2,11 +2,12 @@
 from datetime import date
 
 import qt_ui as tk
-from qt_ui import messagebox, ttk
+from qt_ui import filedialog, messagebox, ttk
 
 from background_read import BackgroundRead
 from finance_ui import apply_widths, content_widths, fill
-from loan_manager import build_bundled_loan_report, save_loan_report, target_year
+from loan_manager import build_uploaded_loan_report, save_loan_report, target_year, upload_loan_sources
+from result_paths import desktop_dir
 from statement_ui import table
 from ui_theme import dark_titlebar
 
@@ -36,7 +37,14 @@ def open_loans(parent, center, open_file):
     ttk.Label(line, text='조회 연도').pack(side='left')
     ttk.Spinbox(line, from_=1900, to=9999, textvariable=year, width=8).pack(side='left', padx=10)
 
-    status = tk.StringVar(value='조회 연도를 선택하고 생성을 누르세요.')
+    storage = desktop_dir()/'settings'/'loan-sources.zip'
+
+    def ready_status():
+        if storage.is_file():
+            return '저장된 차입금 자료를 사용합니다. 조회 연도를 선택하고 생성을 누르세요.'
+        return '자료 업로드에서 차입금 원자료를 선택하세요.'
+
+    status = tk.StringVar(value=ready_status())
     window._work_status = status
     task = BackgroundRead(window, status)
     ttk.Separator(footer).pack(fill='x', pady=(0, 8))
@@ -62,9 +70,33 @@ def open_loans(parent, center, open_file):
         exported_path = None
         excel_button.configure(state='disabled')
         results.pack_forget()
-        status.set('조회 연도를 선택하고 생성을 누르세요.')
+        status.set(ready_status())
+
+    def upload():
+        if task.busy:
+            return
+        paths = filedialog.askopenfilenames(
+            parent=window, title='차입금 원자료 업로드', filetypes=[('Excel', '*.xls *.xlsx *.xlsm')]
+        )
+        if not paths:
+            return
+
+        def updated(count):
+            clear_report()
+            status.set(f'차입금 원자료 {count}개를 저장했습니다. 생성을 누르면 최신 자료를 집계합니다.')
+
+        def failed(error):
+            status.set('자료 업로드에 실패했습니다. '+ready_status())
+            messagebox.showerror('자료 업로드 실패', str(error), parent=window)
+
+        task.run(lambda: upload_loan_sources(paths, storage), updated, failed)
 
     def execute():
+        if task.busy:
+            return
+        if not storage.is_file():
+            status.set(ready_status())
+            return
         try:
             selected_year = target_year(year.get())
         except ValueError as error:
@@ -100,9 +132,8 @@ def open_loans(parent, center, open_file):
             status.set('차입금 자료를 집계하지 못했습니다.')
             messagebox.showerror('집계 중단', str(error), parent=window)
 
-        if not task.busy:
-            clear_report()
-            task.run(lambda: build_bundled_loan_report(selected_year), show_report, failed)
+        clear_report()
+        task.run(lambda: build_uploaded_loan_report(storage, selected_year), show_report, failed)
 
     def open_excel():
         if report is None or task.busy:
@@ -127,6 +158,7 @@ def open_loans(parent, center, open_file):
             snapshot = report
             task.run(lambda: save_loan_report(snapshot), open_saved, failed)
 
+    ttk.Button(line, text='자료 업로드', command=upload).pack(side='left')
     excel_button = ttk.Button(line, text='엑셀 열기', command=open_excel, state='disabled')
     excel_button.pack(side='right')
     ttk.Button(line, text='생성', command=execute, style='Primary.TButton').pack(side='right', padx=(0, 8))

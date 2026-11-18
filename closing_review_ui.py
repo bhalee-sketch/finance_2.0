@@ -24,12 +24,21 @@ def open_closing_review(parent,desktop,center):
     def detail_tab(title):
         frame=ttk.Frame(tabs);tabs.add(frame,text=title)
         canvas=tk.Canvas(frame,highlightthickness=0)
+        canvas._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Ignored)
         scroll=ttk.Scrollbar(frame,orient='vertical',command=canvas.yview)
         canvas.configure(yscrollcommand=scroll.set)
         scroll.pack(side='right',fill='y');canvas.pack(side='left',fill='both',expand=True)
         inner=ttk.Frame(canvas,padding=8);item=canvas.create_window(0,0,window=inner,anchor='nw')
-        inner.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
-        canvas.bind('<Configure>',lambda e:canvas.itemconfigure(item,width=e.width))
+        def update_scrollregion(event=None):
+            bounds=canvas.bbox('all')
+            if bounds and canvas.cget('scrollregion')!=bounds:
+                canvas.configure(scrollregion=bounds)
+        def resize_content(event):
+            if canvas.itemcget(item,'width')!=event.width:
+                canvas.itemconfigure(item,width=event.width)
+            update_scrollregion()
+        inner.bind('<Configure>',update_scrollregion)
+        canvas.bind('<Configure>',resize_content)
         return inner
     carry_body=detail_tab('재무제표 점검')
     reserve_body=detail_tab('적립금 투자 검토')
@@ -94,7 +103,7 @@ def open_closing_review(parent,desktop,center):
                 errors.append(str(exc));carry=dict.fromkeys(('carryover','advance','income','other','ratio','limit'))
                 carry.update(details=[],state='자료 확인 필요',issues=[])
             comparisons=review_fund_transfers(record)
-            try:reserves=load_reserves(settings,selected,path)
+            try:reserves=load_reserves(settings,selected,path,statement_record=record)
             except Exception as exc:errors.append(str(exc));reserves=None
             return carry,comparisons,reserves,errors
         jobs.run(work,done)

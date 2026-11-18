@@ -27,7 +27,9 @@ class ClosingDashboard(ttk.Frame):
     def __init__(self,parent):
         super().__init__(parent);self.payload=None
         self.render()
-    def clear(self):self.payload=None;self.render()
+    def clear(self):
+        if self.payload is not None:
+            self.payload=None;self.render()
     def set_results(self,year,carry,comparisons,reserves,calculated):
         self.payload=year,carry,comparisons,reserves,calculated;self.render()
     def render(self):
@@ -43,7 +45,7 @@ class ClosingDashboard(ttk.Frame):
             top.columnconfigure(col,weight=1,uniform='cards')
             card=ttk.LabelFrame(top,text=title,padding=12);card.grid(row=0,column=col,sticky='nsew',padx=(0,8 if col<3 else 0))
             label=ttk.Label(card,text=value,font=NumericFont(('맑은 고딕',14,'bold')) if col<3 else ('맑은 고딕',11,'bold'));label.pack(fill='x')
-            label.bind('<Configure>',lambda event,w=label:w.configure(wraplength=max(90,event.width)))
+            label._q.setWordWrap(True)
         middle=ttk.Frame(self);middle.grid(row=1,column=0,sticky='nsew',pady=(0,10));middle.rowconfigure(0,weight=1)
         for col in range(3):middle.columnconfigure(col,weight=1,uniform='panels')
         chart1=ttk.LabelFrame(middle,text='검토 결과 비율',padding=10);chart1.grid(row=0,column=0,sticky='nsew',padx=(0,8))
@@ -51,6 +53,8 @@ class ClosingDashboard(ttk.Frame):
         metrics=ttk.LabelFrame(middle,text='주요 지표 · 원',padding=10);metrics.grid(row=0,column=2,sticky='nsew')
         palette=('#2CA66F','#F08A32','#8A9BAE')
         canvas=tk.Canvas(chart1,height=200,highlightthickness=0);canvas.pack(fill='both',expand=True)
+        canvas._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Ignored)
+        canvas._q.setMinimumSize(180,150)
         @polished_chart
         def donut(c):
             c.delete('all');w=max(180,c.winfo_width());h=max(150,c.winfo_height());r=min(w*.24,h*.30);cx=w/2;cy=h*.38;start=-90
@@ -65,6 +69,8 @@ class ClosingDashboard(ttk.Frame):
             c.create_text(w/2,h-23,text=f'자료 확인 {unknown}건',fill='#94A3B8')
         canvas.bind('<Configure>',lambda event:donut(canvas))
         bars=tk.Canvas(chart2,height=200,highlightthickness=0);bars.pack(fill='both',expand=True)
+        bars._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Ignored)
+        bars._q.setMinimumSize(180,150)
         @polished_chart
         def draw_bars(c):
             c.delete('all');w=max(180,c.winfo_width());h=max(150,c.winfo_height())
@@ -96,4 +102,4 @@ class ClosingDashboard(ttk.Frame):
             for col,text in enumerate(row):
                 label=ttk.Label(bottom,text=text,anchor='w',justify='left');label.grid(row=index,column=col,sticky='nsew',padx=6,pady=3)
                 if col==1:label.configure(foreground=palette[0] if text in GOOD else palette[1] if text in BAD else palette[2])
-                label.bind('<Configure>',lambda event,w=label:w.configure(wraplength=max(60,event.width)))
+                label._q.setWordWrap(True)
