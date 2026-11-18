@@ -1,6 +1,7 @@
 """LoanStatusMacros의 원자료 집계 규칙을 사용하는 차입금 관리."""
 from result_paths import result_path
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -243,7 +244,8 @@ def upload_loan_sources(paths, storage):
     return len(sources)
 
 
-def build_uploaded_loan_report(storage, year):
+@contextmanager
+def uploaded_loan_sources(storage):
     if not Path(storage).is_file():
         raise ValueError('자료 업로드에서 차입금 원자료를 먼저 선택하세요.')
     with TemporaryDirectory(prefix='loan-report-') as folder:
@@ -254,6 +256,11 @@ def build_uploaded_loan_report(storage, year):
                     raise ValueError('저장된 차입금 자료를 읽을 수 없습니다. 다시 업로드하세요.')
                 with archive.open(member) as source, (Path(folder)/name).open('xb') as copy:
                     copyfileobj(source, copy)
+        yield folder
+
+
+def build_uploaded_loan_report(storage, year):
+    with uploaded_loan_sources(storage) as folder:
         return build_loan_report(folder, year, source_label='최근 업로드 자료')
 
 

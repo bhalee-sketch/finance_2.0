@@ -1,56 +1,37 @@
 """그래프 중심 주제별 분석. 화면 금액은 백만원, 표와 Excel은 원 단위."""
-from pathlib import Path
-from datetime import datetime
-from decimal import Decimal
 import qt_ui as tk
 from qt_ui import ttk,messagebox
 from analysis_charts import lines,bars,stacked_years,grant_bars
-from fund_data import load_funds,fund_series,individual_fund_series,HEADERS as FUND_HEADERS
+from fund_data import load_bundled_funds,fund_series,individual_fund_series,HEADERS as FUND_HEADERS
 from analysis_presentation import complete_sum
-from analysis_topics import cash_topics,expense_history,fund_balances,loan_dashboard
-from gov_subsidy import load_subsidies,subsidy_series
+from analysis_topics import expense_history
+from gov_subsidy import load_bundled_subsidies,subsidy_series
 from statement_ui import table
 from finance_ui import target_file,saved
 
 
-def install_topics(notebook,window,settings,jobs,context,display_table,open_file):
+def install_topics(notebook,window,jobs,context,display_table,open_file):
     states={}
-    for key,title in [('ratio','수입 대비 지출'),('loans','차입금·이자 상환'),('fund','기금사용현황'),('grants','국고보조금 현황')]:
+    for key,title in [('ratio','수입 대비 지출'),('fund','기금사용현황'),('grants','국고보조금 현황')]:
         frame=ttk.Frame(notebook,padding=8);notebook.add(frame,text=title)
         controls=ttk.Frame(frame);controls.pack(fill='x')
         note=tk.StringVar();ttk.Label(frame,textvariable=note,style='Muted.TLabel',wraplength=1200).pack(fill='x',pady=5)
         plot=ttk.LabelFrame(frame,text=title+(' · %' if key=='ratio' else ' · 백만원'),padding=8,style='Dashboard.TLabelframe');plot.pack(fill='both',expand=True)
         canvas=tk.Canvas(plot,bg='#192131',height=160,highlightthickness=0);canvas.pack(fill='both',expand=True)
         table_frame=ttk.LabelFrame(frame,text='상세 내역 · 원',padding=5,style='Dashboard.TLabelframe');
-        if key=='loans':table_frame.pack(fill='x',pady=(6,0))
         tree=table(table_frame,['회계연도']);tree.configure(height=5,style='Dashboard.Treeview')
-        state={'frame':frame,'note':note,'canvas':canvas,'tree':tree,'headers':[], 'rows':[], 'plot_headers':[], 'plot_rows':[], 'sources':[], 'ratios':[], 'annual':[], 'quarters':{},'subsidies':{},'source_notes':[],'counts':{},'funds':{}}
+        state={'frame':frame,'note':note,'canvas':canvas,'tree':tree,'headers':[], 'rows':[], 'plot_headers':[], 'plot_rows':[], 'sources':[], 'ratios':[],'subsidies':{},'source_notes':[],'counts':{},'funds':{}}
         states[key]=state
         export_button=ttk.Button(controls,text='Excel 저장',command=lambda k=key:export(k));export_button.pack(side='right');jobs.controls.append(export_button)
-        mode=tk.StringVar(value={'ratio':'자금계산서 총액','fund':'임의기금 잔액','loans':'납부 기준','grants':''}[key]);state['mode']=mode
+        mode=tk.StringVar(value={'ratio':'자금계산서 총액','fund':'임의기금 잔액','grants':''}[key]);state['mode']=mode
         if key in ('ratio','fund','grants'):
             button=ttk.Button(controls,text='연도별 금액',command=lambda k=key:annual_popup(k));button.pack(side='left',padx=5);jobs.controls.append(button)
-        if key=='loans':
-            b=ttk.Button(controls,text='차입금 자료 불러오기',command=lambda:load_loans());b.pack(side='left',padx=4);jobs.controls.append(b)
-            for label in ('납부 기준','예정 기준','잔여 예정액'):
-                b=ttk.Radiobutton(controls,text=label,variable=mode,value=label,command=lambda:render_loans(),style='Statement.TRadiobutton');b.pack(side='left',padx=5)
-            ttk.Label(controls,text='분기 조회 연도').pack(side='left',padx=(14,3))
-            year=tk.StringVar();box=ttk.Combobox(controls,textvariable=year,state='readonly',width=7);box.pack(side='left');box.bind('<<ComboboxSelected>>',lambda e:render_loans())
-            state.update(year=year,year_box=box)
-            ttk.Label(controls,text='그래프 시작연도').pack(side='left',padx=(12,3))
-            start=tk.StringVar(value='전체');start_box=ttk.Combobox(controls,textvariable=start,state='readonly',width=7);start_box.pack(side='left');start_box.bind('<<ComboboxSelected>>',lambda e:render_loans())
-            state.update(start=start,start_box=start_box)
-        else:
-            choices=()
-            for label in choices:
-                b=ttk.Radiobutton(controls,text=label,variable=mode,value=label,command=lambda:refresh(),style='Statement.TRadiobutton');b.pack(side='left',padx=5)
-            ttk.Label(controls,text='연도 범위').pack(side='left',padx=(12,4))
-            span=tk.StringVar(value='5개년');box=ttk.Combobox(controls,textvariable=span,values=['5개년','10개년','전체'],state='readonly',width=8);box.pack(side='left');box.bind('<<ComboboxSelected>>',lambda e:refresh());state['span']=span
+        ttk.Label(controls,text='연도 범위').pack(side='left',padx=(12,4))
+        span=tk.StringVar(value='5개년');box=ttk.Combobox(controls,textvariable=span,values=['5개년','10개년','전체'],state='readonly',width=8);box.pack(side='left');box.bind('<<ComboboxSelected>>',lambda e:refresh());state['span']=span
         if key in ('grants','fund'):
             ttk.Label(controls,text='기준연도').pack(side='left',padx=(12,3))
             year=tk.StringVar();box=ttk.Combobox(controls,textvariable=year,state='readonly',width=7);box.pack(side='left');box.bind('<<ComboboxSelected>>',lambda e,k=key:render_grants() if k=='grants' else render_funds())
             state.update(year=year,year_box=box)
-            button=ttk.Button(controls,text='명세서 새로고침',command=lambda k=key:load_grants() if k=='grants' else load_fund_data());button.pack(side='left',padx=8);jobs.controls.append(button)
         if key=='fund':
             state['individual']=None
             ttk.Button(controls,text='개별 기금 선택',command=lambda:choose_funds()).pack(side='left',padx=5)
@@ -71,19 +52,16 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
         if key=='ratio':stacked_years(s['canvas'],s['plot_headers'],s['ratios'],s['rows'])
         elif key=='fund':(bars if s['graph'].get()=='막대' else lines)(s['canvas'],s['plot_headers'],s['plot_rows'],'기말잔액')
         elif key=='grants':grant_bars(s['canvas'],s['plot_headers'],s['plot_rows'],s['counts'])
-        else:lines(s['canvas'],s['plot_headers'],s['plot_rows'],'금액',hide_zero=True,name_labels=True)
 
     def show(key):
         s=states[key];headers=s['headers'];rows=s['rows']
-        values=rows if key=='loans' else rows+[['조회 연도 합계',*[complete_sum(row[i] for row in rows) for i in range(1,len(headers))]]]
-        display_table(s['tree'],headers,values,range(1,len(headers)-(1 if key=='loans' else 0)))
-        if key=='loans':s['tree'].column(str(len(headers)-1),anchor='center')
+        values=rows+[['조회 연도 합계',*[complete_sum(row[i] for row in rows) for i in range(1,len(headers))]]]
+        display_table(s['tree'],headers,values,range(1,len(headers)))
         s['tree'].tag_configure('total',background='#244C70',foreground='#FFFFFF',font=('맑은 고딕',9,'bold'))
         s['tree'].tag_configure('attention',background='#54472B',foreground='#FFE5A3')
         children=s['tree'].get_children()
         for iid,row in zip(children,values):
             if row[0] in ('합계','조회 연도 합계'):s['tree'].item(iid,tags=('total',))
-            elif key=='loans' and row[-1]=='미완료':s['tree'].item(iid,tags=('attention',))
         draw(key)
 
     def subset(history,year,state):
@@ -104,7 +82,6 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
                 s['note'].set(f'{scope} / {"전체" if unit=="합계" else unit} · 연도별 {s["mode"].get()} = 100% · 초과 비율 유지 · 누락/음수 연도는 표 확인'+(' · '+' / '.join(notes) if notes else ''))
             show(key)
         render_grants();render_funds()
-        if not states['loans']['annual']:states['loans']['note'].set('settings/loans의 원자료를 불러오세요.')
 
     def render_grants():
         s=states['grants'];history=s['subsidies'];year=s['year'].get()
@@ -116,7 +93,7 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
         s['plot_headers']=headers;s['plot_rows']=rows;s['counts']={y:d['count'] for y,d in selected.items()}
         s['headers']=[*headers,'합계','사업 건수'];s['rows']=[r+[complete_sum(r[1:]),s['counts'].get(r[0])] for r in rows]
         s['sources']=[str(d['source']) for d in selected.values()]
-        s['note'].set('국고보조금명세서 결산액 · 전체 회계단위 · 막대: 계정과목별(좌측) / 선: 합계(우측)'+(' · '+' / '.join(s['source_notes']) if s['source_notes'] else ''))
+        s['note'].set('내장 국고보조금명세서 결산액 · 전체 회계단위 · 막대: 계정과목별(좌측) / 선: 합계(우측)'+(' · '+' / '.join(s['source_notes']) if s['source_notes'] else ''))
         show('grants')
 
     def load_grants():
@@ -128,7 +105,7 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
             years=sorted(s['subsidies'],reverse=True);s['year_box'].configure(values=years)
             if s['year'].get() not in years:s['year'].set(years[0] if years else '')
             render_grants()
-        jobs.run(lambda:load_subsidies(settings/'govsubsidy'),done)
+        jobs.run(load_bundled_subsidies,done)
 
     def render_funds():
         s=states['fund'];history=s['funds'];year=s['year'].get()
@@ -137,7 +114,7 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
         s['plot_headers']=headers;s['plot_rows']=rows
         s['headers']=[*headers,'합계'];s['rows']=[r+[complete_sum(r[1:])] for r in rows]
         s['sources']=[str(d['source']) for d in selected.values()]
-        s['note'].set('settings/fund · 파일명 연도 · 기말잔액 · 선택 기금/구분별 비교 (상단 재무제표 회계구분과 별도)'+(' · '+' / '.join(s['source_notes']) if s['source_notes'] else ''))
+        s['note'].set('내장 기금 자료 · 기말잔액 · 선택 기금/구분별 비교 (상단 재무제표 회계구분과 별도)'+(' · '+' / '.join(s['source_notes']) if s['source_notes'] else ''))
         show('fund')
 
     def choose_funds():
@@ -169,7 +146,7 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
             years=sorted(s['funds'],reverse=True);s['year_box'].configure(values=years)
             if s['year'].get() not in years:s['year'].set(years[0] if years else '')
             render_funds()
-        jobs.run(lambda:load_funds(settings/'fund'),done)
+        jobs.run(load_bundled_funds,done)
 
     def fund_details():
         from analysis_table_popup import amount_popup
@@ -178,35 +155,10 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
         rows=data['details'];total=['합계','',*[complete_sum(r[i] for r in rows) for i in range(2,6)]]
         amount_popup(window,FUND_HEADERS,rows+[total],display_table,s['year'].get()+'년 기금 상세 · 원')
 
-    def render_loans():
-        from loan_manager import HEADERS
-        s=states['loans'];annual=s['annual'];mode=s['mode'].get()
-        s['headers']=['분기',*HEADERS];s['rows']=s['quarters'].get(s['year'].get(),[])
-        if mode=='잔여 예정액':
-            rows=[[r[0],*[sum((v[i] for v in annual if int(v[0])>int(r[0])),Decimal(0)) for i in (1,2)]] for r in annual]
-            s['plot_headers']=['회계연도','잔여 예정 원금','잔여 예정 이자']
-            note='각 연도 말 이후 예정 일정의 합계 · 실제 차입 잔액이나 미래 이자 예측이 아닙니다.'
-        else:
-            indices=(3,4) if mode=='납부 기준' else (1,2);rows=[[r[0],r[indices[0]],r[indices[1]]] for r in annual]
-            s['plot_headers']=['회계연도','원금','이자'];note='납부는 실제 납부일, 예정은 예정일 기준'
-        if s['start'].get()!='전체':rows=[r for r in rows if int(r[0])>=int(s['start'].get())]
-        s['plot_rows']=rows;s['note'].set(note+' · 3월~다음해 2월 회계연도 · 분기는 3~5 / 6~8 / 9~11 / 12~2월 · 상태는 해당 기간 금액 비교')
-        show('loans')
-
-    def load_loans():
-        def done(result):
-            s=states['loans'];s['annual'],s['quarters'],s['sources']=result
-            years=list(s['quarters']);s['year_box'].configure(values=years)
-            s['start_box'].configure(values=['전체',*years])
-            if s['start'].get() not in years:s['start'].set('전체')
-            if s['year'].get() not in years:s['year'].set(context()[1] if context()[1] in years else years[-1] if years else '')
-            render_loans()
-        jobs.run(lambda:loan_dashboard(settings/'loans'),done)
-
     def export(key):
         s=states[key]
         if not s['rows']:messagebox.showinfo('저장','먼저 자료를 불러오세요.',parent=window);return
-        path=target_file(window,None,{'ratio':'수입 대비 지출','loans':'차입금 이자 상환','fund':'기금사용현황','grants':'국고보조금 현황'}[key])
+        path=target_file(window,None,{'ratio':'수입 대비 지출','fund':'기금사용현황','grants':'국고보조금 현황'}[key])
         if not path:return
         headers=list(s['headers']);rows=[list(r) for r in s['rows']];note=s['note'].get();sources=list(s['sources'])
         fund_bars=key=='fund' and s['graph'].get()=='막대'
@@ -221,7 +173,7 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
             from openpyxl.chart.label import DataLabelList
             wb=Workbook();ws=wb.active;ws.title='분석';append_row(ws,headers)
             for row in rows:append_row(ws,row)
-            if key!='loans':append_row(ws,['조회 연도 합계',*[complete_sum(r[i] for r in rows) for i in range(1,len(headers))]])
+            append_row(ws,['조회 연도 합계',*[complete_sum(r[i] for r in rows) for i in range(1,len(headers))]])
             format_sheet(ws)
             criteria=wb.create_sheet('분석 기준');append_row(criteria,['기준',note])
             for source in sources:append_row(criteria,['원본',source])
@@ -237,7 +189,7 @@ def install_topics(notebook,window,settings,jobs,context,display_table,open_file
             if pr and len(ph)>1:
                 chart=BarChart() if key in ('ratio','grants') or fund_bars else LineChart()
                 if key=='ratio':chart.grouping='stacked';chart.overlap=100;chart.y_axis.title='수입 분모 대비 (%)'
-                chart.title={'ratio':'수입 대비 지출','loans':'차입금·이자','fund':'기금 현황','grants':'국고보조금'}[key]
+                chart.title={'ratio':'수입 대비 지출','fund':'기금 현황','grants':'국고보조금'}[key]
                 chart.add_data(Reference(chartdata,min_col=2,max_col=len(ph)-(1 if key=='grants' else 0),min_row=1,max_row=len(pr)+1),titles_from_data=True)
                 chart.set_categories(Reference(chartdata,min_col=1,min_row=2,max_row=len(pr)+1))
                 chart.dataLabels=DataLabelList();chart.dataLabels.showVal=True

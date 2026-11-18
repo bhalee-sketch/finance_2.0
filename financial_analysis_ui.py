@@ -255,7 +255,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
             if index<len(shown):path=shown[index]['item']['path']
         open_guan_composition(window,statement_view(history[selected.get()],statement.get()),scope.get(),unit.get(),section.get(),path[0] if path else '',f'{selected.get()} · {statement.get()} · {section.get()}')
     composition_actions=ttk.Frame(pie_panel);composition_actions.pack(fill='x',before=pie_plot)
-    ttk.Button(composition_actions,text='관별 구성비',command=show_guan).pack(side='left',padx=3,pady=(0,4))
+    ttk.Button(composition_actions,text='관별 구성비',command=show_guan).pack(side='left',padx=(8,3),pady=(0,4))
 
     def choose_series():
         if not history:return
@@ -368,7 +368,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
     analysis_tree.bind('<Double-1>',lambda e:ledger())
     radios('재무제표',['자금계산서','재무상태표','운영계산서']);radios('회계구분',SCOPES);radios('단위',['합계']);radios('범위',['수입','지출'])
     from topic_ui import install_topics
-    topic_refresh=install_topics(notebook,window,desktop()/'settings',jobs,lambda:(history,selected.get(),scope.get(),unit.get(),preset,current_path()),display_table,open_file)
+    topic_refresh=install_topics(notebook,window,jobs,lambda:(history,selected.get(),scope.get(),unit.get(),preset,current_path()),display_table,open_file)
     def tab_changed(event=None):
         if notebook.select()==str(analysis_tab):
             if not cards.winfo_manager():cards.pack(fill='x',pady=(3,10),before=notebook)

@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
+from unicodedata import normalize
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -13,8 +14,40 @@ from account_verifier import amount
 
 TITLES = {'expense':'지출계좌별 재원코드', 'donation':'기부금계좌별 잔액', 'fund':'임의기금 재원별 지출내역'}
 FOLDERS = {'expense':'expense verification','donation':'donation verification','fund':'fund verification'}
+
+EXPENSE_FUND_RULES = {
+    '지정기부금': ('(연구)연구기부금', '(지정)기타 지정기부금', '(지정)장학 기부금', '(지정)총학생회 기부금'),
+    '비등록금운영비': ('(일반)기타자금', '(일반)법인_경상비(관리.운영비)', '(일반)산단전입_인건비',
+                   '(지정)G-Impact행사', '(지정)Summer School 행사', '(지정)글로벌체험학습센터', '(지정)입시전형료'),
+    '대학교회한국어': ('(지정)대학교회기부금',),
+    '연구소기부금': ('(연구)연구기부금',),
+    '생활관입주보증금': ('(일반)생활관 입주보증금',),
+    '제네시스랩수입': ('제네시스랩(과세)',),
+    '기부부동산임대': ('(지정) 임대료수입(현물부동산)',),
+    '교비일반장학금': ('(지정)장학 기부금',),
+    'CCF후원기부금': ('(지정)장학 기부금(CCF)',),
+    '한국어교실': ('(일반)한국어교실',),
+}
+EXPENSE_FUND_PREFIXES = ('(임의_건축)', '(임의_장학)', '(임의_연구)', '(임의_기타)')
+
+
+def expense_rule_key(value):
+    return ''.join(normalize('NFKC', text(value)).split()).casefold()
+
+
+def expense_fund_passes(account, fund):
+    account_key = expense_rule_key(account).split('(', 1)[0]
+    if account_key == '임의기금지급':
+        return fund.startswith(EXPENSE_FUND_PREFIXES)
+    return fund in EXPENSE_FUND_KEYS.get(account_key, ())
+
+
 def text(v):
     return '' if v is None else str(v).strip()
+
+
+EXPENSE_FUND_KEYS = {expense_rule_key(account): frozenset(map(expense_rule_key, values))
+                     for account, values in EXPENSE_FUND_RULES.items()}
 def norm(v):
     return text(v).replace(' ', '')
 def read_source(path, kind):
@@ -39,7 +72,7 @@ def expense_accounts(path):
     _,rows=read_source(path,'expense')
     return sorted({text(r[21]) for r in rows if text(r[21])})
 
-def classify(kind, headers, rows, mode='교비비등록금', accounts=(), exclude_unpaid=False, account_unit=None):
+def classify(kind, headers, rows, mode='교비비등록금', accounts=(), exclude_unpaid=False, account_unit=None, show_all=False):
     groups={}; stats=Counter(); sums=[]; hidden=set()
     if kind=='expense':
         if not accounts: raise ValueError('처리할 계좌를 하나 이상 선택하세요.')
@@ -50,14 +83,27 @@ def classify(kind, headers, rows, mode='교비비등록금', accounts=(), exclud
         account_col=next((headers.index(h) for h in ('예적금명','계좌명') if h in headers),21)
         if account_unit is not None and '회계단위' not in headers:
             raise ValueError('원본에 회계단위 열이 없어 선택한 회계단위를 확인할 수 없습니다.')
+        fund_col=headers.index('재원')
+        result_col=keep.index(fund_col)+1
+        unit_col=headers.index('회계단위') if account_unit is not None else None
+        selected=set(accounts)
         for row in rows:
-            if account_unit is not None and text(row[headers.index('회계단위')]) != account_unit:
+            if unit_col is not None and text(row[unit_col]) != account_unit:
                 stats['선택 외 회계단위']+=1;continue
-            if text(row[account_col]) not in accounts: stats['선택 외 계좌']+=1; continue
-            if not text(row[headers.index('재원')]).replace('\xa0',''): stats['재원 없음']+=1; continue
-            groups.setdefault(text(row[account_col]),[]).append([row[i] for i in keep])
+            account=text(row[account_col])
+            if account not in selected: stats['선택 외 계좌']+=1; continue
+            fund=expense_rule_key(row[fund_col])
+            if not fund:stats['재원 없음']+=1
+            passed=expense_fund_passes(account,fund)
+            result='통과' if passed else '확인 필요'
+            stats[result]+=1
+            if passed and not show_all:continue
+            values=[row[i] for i in keep]
+            values.insert(result_col,result)
+            groups.setdefault(account,[]).append(values)
         out=[headers[i] for i in keep]
-        for values in groups.values(): values.sort(key=lambda r:text(r[out.index('재원')]))
+        out.insert(result_col,'검토 결과')
+        for values in groups.values(): values.sort(key=lambda r:text(r[result_col-1]))
     elif kind=='fund':
         required={'재원','관','목','차변','대변'}
         if not required.issubset(headers): raise ValueError('재원, 관, 목, 차변, 대변 열이 필요합니다.')
@@ -112,8 +158,10 @@ def build_report(path,kind,**options):
     path=Path(path);headers,rows=read_source(path,kind)
     out,groups,stats,sums,hidden=classify(kind,headers,rows,**options)
     wb=Workbook();summary=wb.active;summary.title='처리요약'
-    for row in [('항목','내용'),('업무',TITLES[kind]),('원본',path.name),('원본 행',len(rows)),('결과 행',sum(map(len,groups.values()))),('안내','원본 매크로의 분류·집계 결과입니다. 계좌잔액 대사나 재원코드 정오 판정은 수행하지 않습니다.')]: append(summary,row)
+    note='선택 계좌의 재원이 등록된 규칙에 맞으면 통과로 표시합니다.' if kind=='expense' else '원본 매크로의 분류·집계 결과입니다. 계좌잔액 대사나 재원코드 정오 판정은 수행하지 않습니다.'
+    for row in [('항목','내용'),('업무',TITLES[kind]),('원본',path.name),('원본 행',len(rows)),('결과 행',sum(map(len,groups.values()))),('안내',note)]: append(summary,row)
     if kind=='expense':
+        append(summary,('보기','전체보기' if options.get('show_all') else '확인 필요만'))
         if options.get('account_unit') is not None:append(summary,('선택 회계단위',options['account_unit']))
         append(summary,('선택 계좌 수',len(options.get('accounts',()))))
         for account in options.get('accounts',()):

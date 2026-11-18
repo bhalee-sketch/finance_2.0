@@ -8,6 +8,17 @@ from analysis_runtime import load_program_reserves as load_reserves
 from finance_data import money
 
 
+def fit_review_rows(tree,*,fixed=False):
+    view=tree._q
+    header=view.horizontalHeader()
+    height=(view.verticalHeader().length()+max(header.height(),header.sizeHint().height())
+            +view.horizontalScrollBar().sizeHint().height()+2*view.frameWidth())
+    if fixed and (view.minimumHeight()!=height or view.maximumHeight()!=height):
+        view.setFixedHeight(height)
+    elif view.minimumHeight()!=height:
+        view.setMinimumHeight(height)
+
+
 def build_reserve_tab(body,window,desktop,jobs,status,external=False):
     year=tk.StringVar();venture=tk.StringVar();paths={};data=None
     bar=ttk.Frame(body);bar.pack(fill='x',pady=(0,8))
@@ -21,6 +32,8 @@ def build_reserve_tab(body,window,desktop,jobs,status,external=False):
     for key,title,width in [('label','검토 항목',310),('amount','금액 / 결과',200),('basis','산식·자료 기준',510)]:
         tree.heading(key,text=title);tree.column(key,width=width,minwidth=100,anchor='e' if key=='amount' else 'w')
     tree.pack(fill='both',expand=True)
+    if external:
+        tree.bind('<Configure>',lambda event:fit_review_rows(tree),add='+')
     result_text=tk.StringVar(value='자료를 불러오세요.')
     ttk.Label(body,textvariable=result_text,style='Accent.TLabel',wraplength=1050).pack(fill='x',pady=8)
     ttk.Label(body,text='기준: 사용자 제공 「사립학교법」 제32조의2 제3항 · 등록금 재원 제외 적립금의 증권 50%, 벤처 10% 한도\n③은 요청하신 기말금액 차감 산식이며 당기 순증가액이 아닙니다. 벤처 입력 공란은 0원이 아닌 미확인입니다.',style='Muted.TLabel',wraplength=1050).pack(fill='x')
@@ -41,6 +54,7 @@ def build_reserve_tab(body,window,desktop,jobs,status,external=False):
         row('⑩ 벤처기업 투자금액',v,'직접 확인·입력 (연도 변경 시 초기화)')
         row('증권투자 한도',r['securities']['limit'],'⑦ × 50%')
         row('벤처기업 투자 한도',r['venture']['limit'],'⑦ × 10%')
+        if external:fit_review_rows(tree)
         def label(key):
             item=r[key];ratio='비율 미산출' if item['ratio'] is None else f"{item['ratio']:.4f}%"
             return f"{item['state']} ({ratio})"

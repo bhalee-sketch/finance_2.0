@@ -16,17 +16,6 @@ PERIOD_COLUMN = HEADERS.index('임대기간')
 CONTRACT_BUTTON_COLUMN = HEADERS.index('계약서 보기')
 
 
-class PeriodDelegate(tk.W.QStyledItemDelegate):
-    def __init__(self,parent):
-        super().__init__(parent)
-        self.family=tk.G.QFontDatabase.systemFont(tk.G.QFontDatabase.SystemFont.FixedFont).family()
-
-    def initStyleOption(self,option,index):
-        super().initStyleOption(option,index)
-        # Equal digit advances keep dates containing repeated ones the same width.
-        option.font.setFamily(self.family)
-
-
 def display_period(value):
     parts=re.split(r'\s*[~～]\s*',value)
     if len(parts)==2:
@@ -102,17 +91,13 @@ def open_rentals(parent,desktop,center,open_file):
     header=view.horizontalHeader()
     header.setMinimumSectionSize(1)
     header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
-    period_delegate=PeriodDelegate(view)
-    view.setItemDelegateForColumn(PERIOD_COLUMN,period_delegate)
 
     def fit_contract_columns(event=None):
         available=view.viewport().width()
         if available<len(CONTRACT_COLUMN_WIDTHS) or header.count()!=len(CONTRACT_COLUMN_WIDTHS):
             return
         widths=list(CONTRACT_COLUMN_WIDTHS)
-        period_font=tk.G.QFont(tree._font().q)
-        period_font.setFamily(period_delegate.family)
-        period_width=tk.G.QFontMetrics(period_font).horizontalAdvance('0000.00.00 ~ 0000.00.00')+8
+        period_width=tk.G.QFontMetrics(tree._font().q).horizontalAdvance('0000.00.00 ~ 0000.00.00')+8
         widths[PERIOD_COLUMN]=max(widths[PERIOD_COLUMN],period_width)
         # Give up optional notes space before compressing the transaction columns.
         widths[-1]=max(54,min(widths[-1],available-sum(widths[:-1])))
@@ -132,7 +117,7 @@ def open_rentals(parent,desktop,center,open_file):
     pdf_buttons=ContractButtons(tree,lambda record:view_contract(record))
     forecast_tab=ttk.Frame(notebook);notebook.add(forecast_tab,text='월·연 예상 수익')
     forecast_actions=ttk.Frame(forecast_tab);forecast_actions.pack(fill='x',pady=6)
-    ttk.Button(forecast_actions,text='월·연 예상 금액',command=lambda:forecast_popup()).pack(side='left')
+    ttk.Button(forecast_actions,text='월·연 예상 금액',command=lambda:forecast_popup()).pack(side='left',padx=(8,0))
     plots=ttk.Frame(forecast_tab);plots.pack(fill='both',expand=True)
     canvas=tk.Canvas(plots,bg='#192131',highlightthickness=0,width=1,height=260)
     annual_canvas=tk.Canvas(plots,bg='#192131',highlightthickness=0,width=1,height=260)

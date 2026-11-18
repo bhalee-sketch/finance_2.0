@@ -54,8 +54,8 @@ def open_appendix_view(parent,center,open_file=None):
     bar.addWidget(original,0,tk.C.Qt.AlignmentFlag.AlignVCenter);bar.addStretch()
     tab_host=ttk.Frame(body);tab_host.pack(fill='x',pady=(0,8))
     tab_layout=tk.W.QVBoxLayout(tab_host._q);tab_layout.setContentsMargins(0,0,0,0)
-    tabs=tk.W.QTabBar();tabs.setObjectName('AppendixSheetTabs');tabs.setAccessibleName('부속명세서 시트');tabs.setShape(tk.W.QTabBar.Shape.RoundedNorth)
-    tabs.setExpanding(False);tabs.setUsesScrollButtons(True);tabs.setMinimumWidth(0)
+    tabs=tk.WorkflowTabBar();tabs.setObjectName('AppendixSheetTabs');tabs.setAccessibleName('부속명세서 시트');tabs.setShape(tk.W.QTabBar.Shape.RoundedNorth)
+    tabs.setExpanding(False);tabs.setMinimumWidth(0)
     tabs.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Fixed);tab_layout.addWidget(tabs)
     entries=[(category,name) for category in SOURCES for name in list_sheets(category,year.get())]
     for category,name in entries:

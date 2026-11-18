@@ -7,5 +7,5 @@ if not errorlevel 1 (
 ) else (
   py -3 source_start.py
 )
-if errorlevel 1 pause
+if not "%errorlevel%"=="0" pause
 endlocal

@@ -722,9 +722,36 @@ class Scale(Widget):
     def set(self,value):self._q.setValue(int(float(value)))
     def get(self):return self._q.value()
 
+class WorkflowTabStyle(W.QProxyStyle):
+    def subElementRect(self,element,option,widget=None):
+        rect=super().subElementRect(element,option,widget)
+        if element==W.QStyle.SubElement.SE_TabBarScrollLeftButton and isinstance(widget,W.QTabBar) and widget.shape() in (
+                W.QTabBar.Shape.RoundedNorth,W.QTabBar.Shape.RoundedSouth,
+                W.QTabBar.Shape.TriangularNorth,W.QTabBar.Shape.TriangularSouth):
+            if option.direction==C.Qt.LayoutDirection.RightToLeft:
+                rect.moveRight(option.rect.right())
+            else:
+                rect.moveLeft(option.rect.left())
+        return rect
+
+
+class WorkflowTabBar(W.QTabBar):
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self._workflow_style=WorkflowTabStyle('Fusion')
+        self._workflow_style.setParent(self)
+        self.setStyle(self._workflow_style)
+        self.setUsesScrollButtons(True)
+        self.setFocusPolicy(C.Qt.FocusPolicy.StrongFocus)
+
+
 class Notebook(Widget):
     qt_type=W.QTabWidget
-    def __init__(self,*args,**kw):super().__init__(*args,**kw);self._tabs=[];self._q.currentChanged.connect(lambda i:self._emit('<<NotebookTabChanged>>'))
+    def __init__(self,*args,**kw):
+        super().__init__(*args,**kw)
+        self._tabs=[]
+        self._q.setTabBar(WorkflowTabBar(self._q))
+        self._q.currentChanged.connect(lambda i:self._emit('<<NotebookTabChanged>>'))
     def add(self,child,**kw):
         child._manager='notebook'
         if child not in self._tabs:self._tabs.append(child);self._q.addTab(child._q,str(kw.get('text','')));child._q.show()
@@ -1052,6 +1079,12 @@ class Canvas(Widget):
                 f.setFamily((app.chart_family or app.family) if isinstance(o.get('font'),ChartFont) else (app.numeric_family or app.family) if isinstance(o.get('font'),NumericFont) else app.family)
             if app and getattr(app,'text_sizes',None):f.setPointSizeF(app.text_sizes['data'])
             item.setFont(f);item.setDefaultTextColor(G.QColor(self._color(o.get('fill','#E2E8F0'))));item.setTextWidth(float(o.get('width',-1) or -1));item.document().setDocumentMargin(0)
+            if o.get('justify') in ('left','center','right'):
+                alignment={'left':C.Qt.AlignmentFlag.AlignLeft,'center':C.Qt.AlignmentFlag.AlignHCenter,
+                           'right':C.Qt.AlignmentFlag.AlignRight}
+                option=item.document().defaultTextOption()
+                option.setAlignment(alignment[o['justify']])
+                item.document().setDefaultTextOption(option)
         elif kind not in ('image','window'):
             fill=o.get('fill','');outline=o.get('fill','') if kind=='line' else o.get('outline','')
             item.setBrush(G.QBrush(G.QColor(self._color(fill))) if fill and kind!='line' else C.Qt.BrushStyle.NoBrush)
@@ -1060,7 +1093,10 @@ class Canvas(Widget):
             if kind=='window':
                 if 'width' in o:item.resize(float(o['width']),item.size().height())
                 if 'height' in o:item.resize(item.size().width(),float(o['height']))
-            rect=item.boundingRect();anchor=o.get('anchor','center');x,y=map(float,coords[:2]);x-=0 if 'w' in anchor else rect.width() if 'e' in anchor else rect.width()/2;y-=0 if 'n' in anchor else rect.height() if 's' in anchor else rect.height()/2;item.setPos(x,y)
+            rect=item.boundingRect();anchor=o.get('anchor','center');x,y=map(float,coords[:2])
+            x-=0 if anchor in ('w','nw','sw') else rect.width() if anchor in ('e','ne','se') else rect.width()/2
+            y-=0 if anchor in ('n','nw','ne') else rect.height() if anchor in ('s','sw','se') else rect.height()/2
+            item.setPos(x,y)
         item.setVisible(o.get('state')!='hidden')
     def create_text(self,*args,**kw):return self._create('text',args,kw)
     def create_rectangle(self,*args,**kw):return self._create('rectangle',args,kw)

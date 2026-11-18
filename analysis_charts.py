@@ -54,11 +54,22 @@ def donut(canvas,slices,amount_label='결산',source_total=...,total_label='합�
             edge=cx+side*(radius+12);tx=edge+side*7
             canvas.create_line(x,y,edge,ly,tx,ly,fill=color,width=1)
             canvas.create_text(tx,ly,anchor='w' if side>0 else 'e',text=f'{label}\n{million(value)}백만원 ({value/total*100:.1f}%)',fill=color,font=('맑은 고딕',9,'bold'),justify='left' if side>0 else 'right',width=max(75,(w-radius*2)/2-26))
+    title=canvas.create_text(cx,cy,text=total_label,fill='#A9B8CC',font=('맑은 고딕',10))
+    amount=canvas.create_text(cx,cy,text=(million(total if source_total is ... else source_total)+'백만원') if source_total is not None else '자료 필요',fill='#EDF2FA',font=('맑은 고딕',12 if radius>100 else 9,'bold'))
+    title_box=canvas.bbox(title)
+    amount_box=canvas.bbox(amount)
     inner=radius*.43
+    if title_box and amount_box:
+        title_height=title_box[3]-title_box[1]
+        amount_height=amount_box[3]-amount_box[1]
+        inner=max(inner,math.hypot(max(title_box[2]-title_box[0],amount_box[2]-amount_box[0])/2+4,
+                                   (title_height+amount_height+3)/2+4))
+        inner=min(inner,radius*.78)
+        canvas.coords(title,cx,cy-(amount_height+3)/2)
+        canvas.coords(amount,cx,cy+(title_height+3)/2)
     pie_hover(canvas,cx,cy,radius,inner,slices,total)
     canvas.create_oval(cx-inner,cy-inner,cx+inner,cy+inner,fill=BG,outline=BG)
-    canvas.create_text(cx,cy-12,text=total_label,fill='#A9B8CC',font=('맑은 고딕',10))
-    canvas.create_text(cx,cy+10,text=(million(total if source_total is ... else source_total)+'백만원') if source_total is not None else '자료 필요',fill='#EDF2FA',font=('맑은 고딕',12 if radius>100 else 9,'bold'))
+    canvas.tag_raise(title);canvas.tag_raise(amount)
 
 
 def nice_axis(low,high):
@@ -151,7 +162,7 @@ def lines(canvas,headers,rows,amount_label='결산',hide_zero=False,name_labels=
 def stacked_years(canvas,headers,rows,amount_rows=None):
     """선택 분모 대비 연도별 누적 비율. 음수/누락은 해당 연도 막대를 생략한다."""
     canvas.delete('all');w=max(canvas.winfo_width(),420);h=max(canvas.winfo_height(),240)
-    labels=headers[1:];left=65;right=max(left+120,w-205);top=35;bottom=h-48
+    labels=headers[1:];left=65;right=max(left+120,w-205);top=52;bottom=h-48
     valid=[bool(row[1:]) and all(v is not None and v>=0 for v in row[1:]) for row in rows]
     peak=max([100]+[float(sum(row[1:])) for row,ok in zip(rows,valid) if ok])
     maximum=math.ceil(peak/20)*20
@@ -173,12 +184,16 @@ def stacked_years(canvas,headers,rows,amount_rows=None):
             high=total+float(value);color=COLORS[j%len(COLORS)]
             tag=f'ratio_{i}_{j}'
             canvas.create_rectangle(x-bar/2,y(high),x+bar/2,y(total),fill=color,outline=BG,width=1,tags=(tag,))
-            if y(total)-y(high)>19:canvas.create_text(x,(y(total)+y(high))/2,text=f'{value:.1f}%',fill='#102334',font=('맑은 고딕',9,'bold'),tags=(tag,))
+            if y(total)-y(high)>16:
+                item=canvas.create_text(x,(y(total)+y(high))/2,text=f'{value:.1f}%',fill='#102334',font=('맑은 고딕',9,'bold'),tags=(tag,))
+                bounds=canvas.bbox(item)
+                if bounds and (bounds[1]<y(high)+2 or bounds[3]>y(total)-2 or bounds[2]-bounds[0]>bar-4):
+                    canvas.delete(item)
             amount=amount_rows[i][j+1] if amount_rows and i<len(amount_rows) else None
             description=f'{row[0]} · {labels[j]}\n{value:.2f}% · '+(compact(amount) if amount is not None else '금액 자료 없음')
             bind_tip(canvas,tag,description)
             total=high
-        canvas.create_text(x,max(25,y(total)-10),text=f'{total:.1f}%',fill='#E7EDF6',font=('맑은 고딕',9,'bold'))
+        canvas.create_text(x,y(total)-5,anchor='s',text=f'{total:.1f}%',fill='#E7EDF6',font=('맑은 고딕',9,'bold'))
     for j,label in enumerate(labels):
         yy=top+j*23;canvas.create_rectangle(right+18,yy,right+27,yy+9,fill=COLORS[j%len(COLORS)],outline='')
         canvas.create_text(right+34,yy+4,anchor='w',text=label,fill='#DCE7F5',font=('맑은 고딕',9))

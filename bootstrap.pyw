@@ -8,6 +8,7 @@ base = Path(__file__).resolve().parent
 os.chdir(base)
 (base/'logs').mkdir(exist_ok=True)
 log = (base/'logs'/'app.log').open('a', encoding='utf-8', buffering=1)
+original_stdout, original_stderr = sys.stdout, sys.stderr
 sys.stdout = sys.stderr = log
 
 
@@ -28,5 +29,7 @@ try:
     main()
 except Exception:
     show_error(*sys.exc_info())
+    raise SystemExit(1)
 finally:
+    sys.stdout, sys.stderr = original_stdout, original_stderr
     log.close()

@@ -138,6 +138,7 @@ def open_macro(parent, desktop, center, open_file, kind):
     filename = tk.StringVar(value='선택한 자료 없음')
     mode = tk.StringVar(value='교비비등록금')
     exclude = tk.BooleanVar(value=False)
+    expense_view = '확인 필요만'
     account_note = tk.StringVar(value='선택한 계좌 없음')
     window._work_status = status
     task = BackgroundRead(window, status)
@@ -159,6 +160,12 @@ def open_macro(parent, desktop, center, open_file, kind):
     if kind == 'expense':
         add(ttk.Button(line, text='처리계좌 선택',
                        command=lambda: select_accounts(window, center, catalog_path, selection, apply_accounts)))
+        view_choices = tk.W.QButtonGroup(line._q)
+        for choice in ('확인 필요만', '전체보기'):
+            option = add(ttk.Radiobutton(line, text=choice, variable=tk.StringVar(value=expense_view),
+                                        value=choice, command=lambda chosen=choice: set_expense_view(chosen),
+                                        style='Statement.TRadiobutton'))
+            view_choices.addButton(option._q)
         label = ttk.Label(line, textvariable=account_note, style='Muted.TLabel')
         label._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored, tk.W.QSizePolicy.Policy.Preferred)
         add(label, stretch=1)
@@ -184,9 +191,8 @@ def open_macro(parent, desktop, center, open_file, kind):
     tab_host.pack(fill='x')
     tab_layout = tk.W.QVBoxLayout(tab_host._q)
     tab_layout.setContentsMargins(0, 0, 0, 0)
-    tabs = tk.W.QTabBar()
+    tabs = tk.WorkflowTabBar()
     tabs.setExpanding(False)
-    tabs.setUsesScrollButtons(True)
     tabs.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored, tk.W.QSizePolicy.Policy.Fixed)
     tab_layout.addWidget(tabs)
     tree = table(preview, [], auto_scroll=True, column_preferences=False)
@@ -292,7 +298,7 @@ def open_macro(parent, desktop, center, open_file, kind):
         selected = source
         options = {'mode': mode.get(), 'exclude_unpaid': exclude.get()}
         if kind == 'expense':
-            options.update(accounts=accounts, account_unit=unit)
+            options.update(accounts=accounts, account_unit=unit, show_all=expense_view == '전체보기')
 
         def work():
             if kind == 'expense':
@@ -330,6 +336,13 @@ def open_macro(parent, desktop, center, open_file, kind):
         else:
             snapshot = report
             task.run(lambda: save_report(snapshot, kind), open_saved, failed)
+
+    def set_expense_view(choice):
+        nonlocal expense_view
+        if choice != expense_view:
+            expense_view = choice
+            if report is not None:
+                execute()
 
     tabs.currentChanged.connect(show_sheet)
     mode.trace_add('write', clear_report)

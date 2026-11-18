@@ -1,4 +1,5 @@
-"""settings/fund/YYYY년 기금.xlsx(xlsm)의 기말잔액. 매크로는 실행하지 않는다."""
+"""내장 기금 내역과 원본 Excel의 기말잔액."""
+import json
 import re
 from pathlib import Path
 from decimal import Decimal
@@ -6,6 +7,7 @@ from openpyxl import load_workbook
 from finance_data import money
 
 HEADERS=['구분','내용','전기이월','당기증가','당기감소','기말잔액']
+BUNDLED_FUNDS=Path(__file__).resolve().parent/'data'/'fund'/'statements.json'
 _CACHE={}
 
 def norm(value):return re.sub(r'\s+','',str(value or ''))
@@ -38,9 +40,24 @@ def read_fund(path,year):
     finally:book.close()
 
 
+def load_bundled_funds():
+    with BUNDLED_FUNDS.open(encoding='utf-8') as stream:
+        records=json.load(stream)
+    history={};notes=[]
+    for year,record in records.items():
+        amounts={};details=[]
+        for group,description,*amounts_as_text in record['details']:
+            numbers=[Decimal(value) for value in amounts_as_text]
+            amounts[group]=amounts.get(group,Decimal(0))+numbers[-1]
+            details.append([group,description,*numbers])
+        history[year]={'amounts':amounts,'details':details,'source':record['source'],'notes':record['notes']}
+        notes.extend(record['notes'])
+    return history,notes
+
+
 def load_funds(folder):
     folder=Path(folder);history={};issues=[];seen={}
-    if not folder.exists():return {},['settings/fund에 YYYY년 기금.xlsx 또는 .xlsm 파일을 저장하세요.']
+    if not folder.exists():return {},['기금 원본 폴더를 찾을 수 없습니다.']
     for path in sorted(folder.iterdir()):
         if not path.is_file() or path.name.startswith('~$') or path.suffix.lower() not in ('.xlsx','.xlsm'):continue
         match=re.fullmatch(r'(20\d{2})\s*년\s*기금',path.stem)

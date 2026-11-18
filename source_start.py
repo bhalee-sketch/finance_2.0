@@ -1,5 +1,6 @@
 """Source test launcher: reuse matching libraries, otherwise use an isolated cached venv."""
 from pathlib import Path
+from datetime import datetime
 import hashlib
 import importlib.metadata
 import os
@@ -50,6 +51,20 @@ def prepare():
     return python
 
 
+def run_source(python):
+    path = BASE/'logs'/'process-exit.log'
+    path.parent.mkdir(exist_ok=True)
+    with path.open('a', encoding='utf-8', buffering=1) as log:
+        log.write(f'\nProcess start {datetime.now().isoformat()}\n')
+        result = subprocess.run([str(python), str(BASE/'source_start.py'), '--run'],
+                                cwd=BASE, stderr=log, env=dict(os.environ, PYTHONFAULTHANDLER='1'))
+        code = result.returncode
+        log.write(f'Process exit {datetime.now().isoformat()} code={code} (0x{code & 0xffffffff:08X})\n')
+    if code:
+        print(f'Application exited with code {code} (0x{code & 0xffffffff:08X}). See {path}', file=sys.stderr)
+    return code
+
+
 def main():
     if sys.version_info<(3,12):raise RuntimeError('Python 3.12 or later is required.')
     if '--run' in sys.argv:
@@ -63,7 +78,7 @@ def main():
     print('Checking Python and library versions. Existing EXE installations are not changed.',flush=True)
     python=prepare()
     print('Starting source test. Application log: '+str(BASE/'logs/app.log'),flush=True)
-    return subprocess.run([str(python),str(BASE/'source_start.py'),'--run'],cwd=BASE).returncode
+    return run_source(python)
 
 
 if __name__=='__main__':

@@ -34,9 +34,9 @@ class RentalLayoutTests(unittest.TestCase):
                 index = view.model().index(0, PERIOD_COLUMN)
                 self.assertEqual(index.data(), '2021.11.11 ~ 2027.11.10')
                 option = q.W.QStyleOptionViewItem()
-                view.itemDelegateForColumn(PERIOD_COLUMN).initStyleOption(option, index)
+                self.assertIsNone(view.itemDelegateForColumn(PERIOD_COLUMN))
+                view.itemDelegate().initStyleOption(option, index)
                 metrics = q.G.QFontMetrics(option.font)
-                self.assertEqual(metrics.horizontalAdvance('2021.11.11'), metrics.horizontalAdvance('2024.03.08'))
                 self.assertEqual(option.font.pointSizeF(), index.data(q.C.Qt.ItemDataRole.FontRole).pointSizeF())
                 self.assertGreaterEqual(view.columnWidth(PERIOD_COLUMN), metrics.horizontalAdvance(index.data())+8)
 

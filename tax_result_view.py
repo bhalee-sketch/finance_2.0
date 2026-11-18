@@ -41,7 +41,7 @@ class TaxResultView:
         ttk.Label(self.frame,textvariable=self.note).pack(anchor='w',pady=(4,6))
         self.tab_host=ttk.Frame(self.frame);self.tab_host.pack(side='bottom',fill='x')
         layout=tk.W.QVBoxLayout(self.tab_host._q);layout.setContentsMargins(0,0,0,0)
-        self.tabs=tk.W.QTabBar();self.tabs.setExpanding(False);self.tabs.setUsesScrollButtons(True)
+        self.tabs=tk.WorkflowTabBar();self.tabs.setExpanding(False)
         self.tabs.setMinimumWidth(0);self.tabs.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Fixed)
         layout.addWidget(self.tabs);self.tabs.currentChanged.connect(self.display)
         self.tree=table(self.frame,[])

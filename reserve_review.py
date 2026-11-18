@@ -6,7 +6,7 @@ from statement_analysis import normalize
 from finance_data import money,discover_ledger_years,load_ledger
 from statement_catalog import discover_appendices
 from statement_loader import load_statement_record_from_path
-from fund_data import load_funds
+from fund_data import load_bundled_funds
 
 
 def current_amount(record,subject,level):
@@ -82,8 +82,8 @@ def load_reserves(settings,year,statement,*,ledger_loader=None,statement_record=
         return sum((r['대변'] for r in rows),Decimal(0))
     read('transfer',transferred,'선택연도 원장 · 등록금회계전입금(목) 대변 합계')
     def fund_amount():
-        history,notes=load_funds(settings/'fund');fund=history.get(str(year))
-        if fund is None:raise ValueError('선택연도 기금 자료 없음: '+' / '.join(notes))
+        history,_=load_bundled_funds();fund=history.get(str(year))
+        if fund is None:raise ValueError(f'{year}년 내장 기금 자료가 없습니다.')
         rows=[row for row in fund['details'] if normalize(row[0])=='임의건축기금' and normalize(row[1])=='건축기금(감가상각)']
         if len(rows)!=1:raise ValueError('임의건축기금 / 건축기금(감가상각) 내역 누락 또는 중복')
         sources['fund_file']=str(fund['source']);return rows[0][-1]

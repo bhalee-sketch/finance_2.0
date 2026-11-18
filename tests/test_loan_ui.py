@@ -70,7 +70,7 @@ class LoanReportTests(unittest.TestCase):
                     results = window._q.findChild(q.W.QTabWidget)
                     self.assertTrue(results.isVisible())
                     self.assertEqual([results.tabText(i) for i in range(results.count())],
-                                     ['요약', '연도별현황', '분기별현황', '조회 연도 상환예정'])
+                                     ['요약', '차입금·이자 상환', '연도별현황', '분기별현황', '조회 연도 상환예정'])
                     summary = results.currentWidget().findChild(q.W.QTableView).model()
                     values = [summary.index(i, 0).data() for i in range(summary.rowCount())]
                     self.assertIn('총 원금', values)
@@ -94,9 +94,25 @@ class LoanReportTests(unittest.TestCase):
                     self.assertEqual(opener.call_count, 2)
                     self.assertEqual(list(path.parent.glob('*.xlsx')), [path])
 
+                    results.setCurrentIndex(1)
+                    detail = results.currentWidget().findChild(q.W.QTableView).model()
+                    self.wait_until(lambda: detail.rowCount() == 5 or show_error.called)
+                    show_error.assert_not_called()
+                    self.assertEqual(detail.index(3, 1).data(), '1,000')
+                    repayment_export = next(button for button in results.currentWidget().findChildren(q.W.QPushButton)
+                                            if button.text() == '상환 분석 Excel 저장')
+                    repayment_export.click()
+                    self.wait_until(lambda: opener.call_count == 3 or show_error.called)
+                    show_error.assert_not_called()
+                    repayment_book = load_workbook(opener.call_args.args[0])
+                    try:
+                        self.assertEqual(repayment_book['분석']['B5'].value, 1000)
+                    finally:
+                        repayment_book.close()
                     year.setValue(2026)
                     self.assertFalse(excel.isEnabled())
-                    self.assertFalse(results.isVisible())
+                    results.setCurrentIndex(0)
+                    self.assertEqual(summary.rowCount(), 0)
         finally:
             root.destroy()
 

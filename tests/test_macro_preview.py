@@ -10,11 +10,38 @@ from openpyxl import Workbook, load_workbook
 from PySide6.QtTest import QTest
 
 import qt_ui as q
-from macro_reports import FOLDERS
+from macro_reports import FOLDERS, classify
 from macro_ui import open_macro
 
 
 class MacroPreviewTests(TestCase):
+    def test_expense_fund_rules_match_by_account(self):
+        examples = {
+            '지정기부금': '(지정)총학생회 기부금',
+            '비등록금운영비': '(지정)Summer School 행사',
+            '임의기금지급': '(임의_연구) 대학 교비',
+            '대학교회한국어': '(지정)대학교회기부금',
+            '연구소기부금': '(연구)연구기부금',
+            '생활관입주보증금': '(일반)생활관 입주보증금',
+            '제네시스랩수입': '제네시스랩(과세)',
+            '기부부동산임대': '(지정) 임대료수입(현물부동산)',
+            '교비일반장학금': '(지정)장학 기부금',
+            'CCF후원기부금': '(지정)장학 기부금(CCF)',
+            '한국어교실': '(일반)한국어교실',
+        }
+        accounts = [f'{name}(하나{index:05})' for index, name in enumerate(examples)]
+        rows = [[account, fund.replace(' ', '\xa0')] for account, fund in zip(accounts, examples.values())]
+        rows.extend([[accounts[1], '(지정)장학 기부금'], [accounts[-1], None]])
+        headers = ['예적금명', '재원']
+        _, exceptions, stats, _, _ = classify('expense', headers, rows, accounts=accounts)
+        self.assertEqual(list(exceptions), [accounts[1], accounts[-1]])
+        self.assertEqual(stats['통과'], 11)
+        self.assertEqual(stats['확인 필요'], 2)
+        _, full, _, _, _ = classify('expense', headers, rows, accounts=accounts, show_all=True)
+        self.assertEqual(list(full), accounts)
+        for account in accounts:
+            self.assertIn('통과', [row[-1] for row in full[account]])
+
     def test_each_report_displays_data_before_excel_open(self):
         unit = '교비비등록금'
         expense_headers = ['회계단위', '재원', '차변', *[f'항목{i}' for i in range(18)], '예적금명']
@@ -22,7 +49,10 @@ class MacroPreviewTests(TestCase):
         donation_headers[15] = '잔액'
         donation = ['기부 자료', *(['']*14), 98765, '끝']
         fixtures = {
-            'expense': (expense_headers, [[unit, '일반재원', 32100, *(['']*18), '테스트계좌']], '테스트계좌', '32,100'),
+            'expense': (expense_headers,
+                        [[unit, '일반재원', 32100, *(['']*18), '테스트계좌'],
+                         [unit, '(연구)연구기부금', 11100, *(['']*18), '지정기부금(하나32104)']],
+                        '테스트계좌', '32,100'),
             'donation': (donation_headers, [donation], '지정기부금', '98,765'),
             'fund': (['재원', '관', '목', '차변', '대변'],
                      [['임의 연구', '연구비', '재료비', 65400, 0], ['임의 연구', '연구비', '미지급금', 9000, 0]],
@@ -35,7 +65,8 @@ class MacroPreviewTests(TestCase):
                 source = settings/FOLDERS[kind]/'원자료.xlsx'
                 source.parent.mkdir(parents=True)
                 self.write(source, [headers, *rows])
-                self.write(settings/'accountsforfinancecode.xlsx', [['회계단위', '계좌명'], [unit, '테스트계좌']])
+                self.write(settings/'accountsforfinancecode.xlsx',
+                           [['회계단위', '계좌명'], [unit, '테스트계좌'], [unit, '지정기부금(하나32104)']])
                 root = q.Tk()
                 opener = Mock()
                 try:
@@ -76,6 +107,17 @@ class MacroPreviewTests(TestCase):
                                 self.assertEqual(result[sheet_name]['D3'].value, 65400)
                         finally:
                             result.close()
+                        if kind == 'expense':
+                            self.assertEqual(tabs.count(), 2)
+                            options = {button.text(): button for button in window._q.findChildren(q.W.QRadioButton)}
+                            options['전체보기'].click()
+                            self.wait_until(lambda: excel.isEnabled() and tabs.count() == 3 or error.called, window)
+                            error.assert_not_called()
+                            tabs.setCurrentIndex(2)
+                            self.assertIn('통과', [model.index(0, i).data() for i in range(model.columnCount())])
+                            options['확인 필요만'].click()
+                            self.wait_until(lambda: excel.isEnabled() and tabs.count() == 2 or error.called, window)
+                            error.assert_not_called()
                 finally:
                     root.destroy()
 

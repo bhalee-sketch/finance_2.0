@@ -1,4 +1,5 @@
-"""settings/govsubsidy의 연도별 국고보조금 명세서. 결산액 기준."""
+"""내장 국고보조금명세서의 연도별 결산액과 원본 Excel 읽기."""
+import json
 from pathlib import Path
 import re
 from decimal import Decimal
@@ -6,6 +7,7 @@ from openpyxl import load_workbook
 from finance_data import money
 
 CATEGORIES=['교육부(기타지원금)','교육부(국가장학금)','기타국고지원','지방자치단체']
+BUNDLED_SUBSIDIES=Path(__file__).resolve().parent/'data'/'govsubsidy'/'statements.json'
 _CACHE={}
 
 def normalized(value):return re.sub(r'\s+','',str(value or ''))
@@ -37,9 +39,24 @@ def read_subsidy(path):
     finally:book.close()
 
 
+def load_bundled_subsidies():
+    history={}
+    with BUNDLED_SUBSIDIES.open(encoding='utf-8') as stream:
+        records=json.load(stream)
+    for year,record in records.items():
+        sums=dict.fromkeys(CATEGORIES,Decimal(0))
+        details=[]
+        for category,project,amount,sheet,row in record['details']:
+            value=Decimal(amount)
+            sums[category]=sums.get(category,Decimal(0))+value
+            details.append([category,project,value,sheet,row])
+        history[year]={'amounts':sums,'count':len(details),'details':details,'source':record['source']}
+    return history,[]
+
+
 def load_subsidies(folder):
     folder=Path(folder)
-    if not folder.exists():return {},['settings/govsubsidy에 연도별 국고보조금명세서를 저장하세요.']
+    if not folder.exists():return {},['국고보조금명세서 폴더를 찾을 수 없습니다.']
     history={};issues=[];seen={}
     for path in sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower()=='.xlsx'):
         if path.name.startswith('~$'):continue

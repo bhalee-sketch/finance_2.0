@@ -7,6 +7,7 @@ from qt_ui import filedialog, messagebox, ttk
 from background_read import BackgroundRead
 from finance_ui import apply_widths, content_widths, fill
 from loan_manager import build_uploaded_loan_report, save_loan_report, target_year, upload_loan_sources
+from loan_repayment_ui import install_repayment_tab
 from result_paths import desktop_dir
 from statement_ui import table
 from ui_theme import dark_titlebar
@@ -58,6 +59,11 @@ def open_loans(parent, center, open_file):
         page = ttk.Frame(results)
         results.add(page, text=title)
         result_tables[title] = table(page, [], auto_scroll=True)
+        if title == '요약':
+            reset_repayment, load_repayment_if_selected = install_repayment_tab(
+                results, window, storage, year, task, status, open_file
+            )
+    results.pack(fill='both', expand=True, pady=(6, 0))
 
     report = None
     exported_path = None
@@ -69,7 +75,8 @@ def open_loans(parent, center, open_file):
             report = None
         exported_path = None
         excel_button.configure(state='disabled')
-        results.pack_forget()
+        for tree in result_tables.values():
+            tree.delete(*tree.get_children())
         status.set(ready_status())
 
     def upload():
@@ -83,7 +90,9 @@ def open_loans(parent, center, open_file):
 
         def updated(count):
             clear_report()
+            reset_repayment()
             status.set(f'차입금 원자료 {count}개를 저장했습니다. 생성을 누르면 최신 자료를 집계합니다.')
+            load_repayment_if_selected()
 
         def failed(error):
             status.set('자료 업로드에 실패했습니다. '+ready_status())
@@ -123,7 +132,6 @@ def open_loans(parent, center, open_file):
                 numeric_end = len(headers)-1 if headers[-1] == '상태' else len(headers)
                 fill(tree, headers, rows, range(numeric_start, numeric_end))
                 apply_widths(tree, content_widths(tree, headers, rows))
-            results.pack(fill='both', expand=True, pady=(6, 0))
             results.select(0)
             excel_button.configure(state='normal')
             status.set(f'{selected_year}년 조회 결과를 생성했습니다.')
