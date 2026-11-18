@@ -76,6 +76,8 @@ def open_financial_analysis(parent,desktop,center,open_file):
     analysis_tab=ttk.Frame(notebook);trend_tab=ttk.Frame(notebook)
     for tab,title in [(analysis_tab,'재무제표 구성비'),(trend_tab,'연도별 증감')]:notebook.add(tab,text=title)
     composition_view=tk.Canvas(analysis_tab,bg='#101722',highlightthickness=0);composition_view.pack(side='left',fill='both',expand=True)
+    # The scene fits the viewport, so its size hint must not resize the viewport.
+    composition_view._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Ignored)
     composition_scroll=ttk.Scrollbar(analysis_tab,orient='vertical',command=composition_view.yview)
     def outer_scroll(first,last):
         composition_scroll.set(first,last)
@@ -83,7 +85,6 @@ def open_financial_analysis(parent,desktop,center,open_file):
         else:composition_scroll.pack(side='right',fill='y')
     composition_view.configure(yscrollcommand=outer_scroll)
     quadrants=ttk.Frame(composition_view);composition_id=composition_view.create_window(0,0,anchor='nw',window=quadrants)
-    composition_view.bind('<Configure>',lambda e:window.after_idle(fit_panels))
     quadrants.rowconfigure(0,weight=1)
     trend_grid=ttk.Frame(trend_tab);trend_grid.pack(fill='both',expand=True);trend_grid.rowconfigure(0,weight=1);trend_grid.rowconfigure(1,weight=0);trend_grid.columnconfigure(0,weight=1)
     quadrants.columnconfigure(0,weight=1);quadrants.columnconfigure(1,weight=0,minsize=420)
@@ -92,28 +93,57 @@ def open_financial_analysis(parent,desktop,center,open_file):
     line_panel=ttk.LabelFrame(trend_grid,text='',padding=8,style='Dashboard.TLabelframe');line_panel.grid(row=0,column=0,sticky='nsew',padx=(0,5))
     annual_frame=ttk.Frame(body)  # 금액 표 데이터 유지; 화면에는 팝업으로만 표시
     current_frame.grid_propagate(False);current_frame.pack_propagate(False);pie_panel.pack_propagate(False)
-    def fit_panels(event=None):
-        width=composition_view.winfo_width();available=composition_view.winfo_height()
-        widths=getattr(analysis_tree,'_analysis_widths',[])
-        first,last=analysis_tree.xview()
-        measured=(analysis_tree.winfo_width()-4)/max(.01,last-first)+40 if last-first<.999 else 0
-        needed=max(sum(widths)+48,measured) if isinstance(widths,list) and widths else 440
-        needed=max(needed,ledgerbar.winfo_reqwidth()+24)
-        quadrants.columnconfigure(1,minsize=max(320,needed))
+    panel_fit_job=None
+    applied_panel_width=None
+
+    def schedule_panel_fit(event=None):
+        nonlocal panel_fit_job
+        if panel_fit_job is None:
+            panel_fit_job=window.after_idle(fit_panels)
+
+    def fit_panels():
+        nonlocal panel_fit_job,applied_panel_width
+        panel_fit_job=None
+        width=composition_view.winfo_width()
+        available=composition_view.winfo_height()
+        widths=getattr(analysis_tree,'_analysis_widths',())
+        table_width=sum(widths)+48 if widths else 440
+        panel_width=max(table_width,ledgerbar.winfo_reqwidth()+24)
+        if applied_panel_width!=panel_width:
+            applied_panel_width=panel_width
+            quadrants.columnconfigure(1,minsize=panel_width)
+            current_frame.configure(width=panel_width)
+
         count=len(analysis_tree.get_children())
         rowheight=max(18,min(25,(available-115)//max(1,count)))
-        style.configure('Composition.Treeview',rowheight=rowheight,background='#192738',fieldbackground='#192738',foreground='#E7EDF6')
+        if style.lookup('Composition.Treeview','rowheight')!=rowheight:
+            style.configure('Composition.Treeview',rowheight=rowheight,background='#192738',fieldbackground='#192738',foreground='#E7EDF6')
+        tree_height=max(1,count)
+        if analysis_tree.cget('height')!=tree_height:
+            analysis_tree.configure(height=tree_height)
         height=max(available-8,ledgerbar.winfo_reqheight()+analysis_tree.winfo_reqheight()+32)
-        analysis_tree.configure(height=max(1,count))
-        current_frame.configure(height=height,width=max(320,needed));pie_panel.configure(height=max(200,available-8))
-        composition_view.itemconfigure(composition_id,width=width,height=max(available,height+8))
-        composition_view.configure(scrollregion=(0,0,width,max(available,height+8)))
-        trend_widths=getattr(trend_tree,'_analysis_widths',[])
-        if isinstance(trend_widths,list) and trend_widths:
+        if current_frame.cget('height')!=height:
+            current_frame.configure(height=height)
+        pie_height=max(200,available-8)
+        if pie_panel.cget('height')!=pie_height:
+            pie_panel.configure(height=pie_height)
+        canvas_height=max(available,height+8)
+        scrollregion=(0,0,width,canvas_height)
+        if composition_view.cget('scrollregion')!=scrollregion:
+            composition_view.itemconfigure(composition_id,width=width,height=canvas_height)
+            composition_view.configure(scrollregion=scrollregion)
+
+        trend_widths=getattr(trend_tree,'_analysis_widths',())
+        if trend_widths:
             room=max(0,trend_tree.winfo_width()-sum(trend_widths)-4)
-            for i,pixels in enumerate(trend_widths):trend_tree.column(str(i),width=pixels+int(room/len(trend_widths)))
-    quadrants.bind('<Configure>',lambda e:window.after_idle(fit_panels))
-    trend_grid.bind('<Configure>',lambda e:window.after_idle(fit_panels))
+            extra=room//len(trend_widths)
+            for i,pixels in enumerate(trend_widths):
+                column=str(i)
+                if trend_tree.column(column,'width')!=pixels+extra:
+                    trend_tree.column(column,width=pixels+extra)
+
+    for panel in (composition_view,quadrants,trend_grid):
+        panel.bind('<Configure>',schedule_panel_fit)
     pie_plot=ttk.Frame(pie_panel);pie_plot.pack(fill='both',expand=True)
     canvas=tk.Canvas(pie_plot,width=1,height=1,bg='#192131',highlightthickness=0);canvas.pack(side='left',fill='both',expand=True)
     pie_scroll=ttk.Scrollbar(pie_plot,orient='vertical',command=canvas.yview)
@@ -279,7 +309,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
         source_total=source_total_row(statement_view(current,statement.get()),statement_view(history.get(prior_year,{}),statement.get()),scope.get(),unit.get(),section.get(),statement.get())
         display_table(analysis_tree,compact_headers,compact_rows+[source_total],(1,2,3))
         analysis_tree.yview_moveto(0);analysis_tree.xview_moveto(0)
-        window.after_idle(fit_panels)
+        schedule_panel_fit()
         context=(statement.get(),scope.get(),unit.get(),section.get(),current_path())
         valid=[total_path()]+[r['item']['path'] for r in shown]
         if series_context!=context:series_paths=valid[:3]

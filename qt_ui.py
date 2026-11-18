@@ -819,7 +819,7 @@ class TableProxy(C.QSortFilterProxyModel):
 
 class Treeview(Widget):
     qt_type=W.QTableView
-    def __init__(self,*args,**kw):
+    def __init__(self,*args,column_preferences=True,**kw):
         self._columns=[];self._column_options={};self._headings={};self._tags={};self._hidden={};self._cell_grid=False;self._fonts={};self._font_by_name={};self._number_job=None;self._layout_warm_job=None;self._wrap_cells=False
         super().__init__(*args,**kw);self.model=TableModel(self);self.proxy=TableProxy(self._q);self.proxy.setSourceModel(self.model);self.proxy.setDynamicSortFilter(False);self._q.setModel(self.proxy);self._q.setSortingEnabled(True);self.proxy.sort(-1)
         self._q.setHorizontalScrollMode(W.QAbstractItemView.ScrollMode.ScrollPerPixel);self._q.setVerticalScrollMode(W.QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -830,8 +830,9 @@ class Treeview(Widget):
         for axis in ('x','y'):
             bar=self._q.horizontalScrollBar() if axis=='x' else self._q.verticalScrollBar();bar.valueChanged.connect(lambda v,a=axis:self._scroll_changed(a));bar.rangeChanged.connect(lambda lo,hi,a=axis:self._scroll_changed(a))
         self._sync_columns()
-        from table_preferences import ColumnWidths
-        self._width_preferences=ColumnWidths(self)
+        if column_preferences:
+            from table_preferences import ColumnWidths
+            self._width_preferences=ColumnWidths(self)
     def _container(self):return self._q.viewport()
     def _color(self,value):
         appearance=getattr(self._root(),'_appearance',None)

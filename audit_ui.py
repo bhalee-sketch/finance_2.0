@@ -4,9 +4,8 @@ from datetime import datetime
 from pathlib import Path
 import qt_ui as tk
 from qt_ui import ttk,messagebox
-from finance_ui import shell,fill,saved,target_file,compact_combo,content_widths,apply_widths
+from finance_ui import shell,fill,saved,target_file,compact_combo
 from statement_ui import table
-from statement_catalog import amount_text
 from analysis_runtime import load_audit_sources as load_sources,program_ledger_paths
 from audit_review import (AccountOrder,matches,review_values,review_years,select_reviews,
                           export_review,AUDIT_HEADERS,CHECK_STATES,AUDIT_VISIBLE_HEADERS,visible_review_values)
@@ -14,8 +13,15 @@ from ui_theme import dark_titlebar
 
 
 def open_audit(parent,desktop,center,open_file):
-    window,body,status,jobs=shell(parent,'계정과목 검토',center)
-    settings=desktop()/'settings';data=None;selected=[];page=0;page_size=200;column_widths=[]
+    window,body,status,jobs=shell(parent,'계정과목 검토',center,show_status=False)
+    settings=desktop()/'settings';data=None;selected=[];page=0;page_size=200
+
+    def wrapped_label(**kwargs):
+        label=ttk.Label(body,wraplength=1100,**kwargs)
+        label._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Preferred)
+        return label
+
+    wrapped_label(textvariable=status,style='Muted.TLabel').pack(side='bottom',fill='x',pady=(6,3))
     source_year=tk.StringVar()
     bar=ttk.Frame(body);bar.pack(fill='x',pady=(0,8));filters={};boxes={}
     year_group=ttk.Frame(bar);year_group.pack(side='left',padx=(0,10))
@@ -35,12 +41,40 @@ def open_audit(parent,desktop,center,open_file):
     search=ttk.Entry(controls,textvariable=query,width=30);search.pack(side='left');search.bind('<Return>',lambda e:render());jobs.controls.append(search)
     button=ttk.Button(controls,text='검색',command=lambda:render());button.pack(side='left',padx=6);jobs.controls.append(button)
     info=tk.StringVar(value='연도별 원장과 재무제표를 자동으로 불러옵니다.')
-    ttk.Label(body,textvariable=info,style='Accent.TLabel',wraplength=1100).pack(fill='x',pady=(0,5))
-    ttk.Label(body,text='2023.12 해설서 기반의 제한적 적요 점검입니다. 탐지 사항 없음은 적정 판정이 아니며, 규칙 미등록 과목은 미점검입니다.',style='Muted.TLabel',wraplength=1100).pack(fill='x',pady=(0,7))
+    wrapped_label(textvariable=info,style='Accent.TLabel').pack(fill='x',pady=(0,5))
+    wrapped_label(text='2023.12 해설서 기반의 제한적 적요 점검입니다. 탐지 사항 없음은 적정 판정이 아니며, 규칙 미등록 과목은 미점검입니다.',style='Muted.TLabel').pack(fill='x',pady=(0,7))
     review_tab=ttk.Frame(body);review_tab.pack(fill='both',expand=True)
     pager=ttk.Frame(review_tab);pager.pack(side='bottom',fill='x',pady=6);page_text=tk.StringVar()
     ttk.Label(pager,textvariable=page_text).pack(side='left')
-    tree=table(review_tab,AUDIT_VISIBLE_HEADERS)
+    tree=table(review_tab,AUDIT_VISIBLE_HEADERS,column_preferences=False)
+    view=tree._q
+    header=view.horizontalHeader()
+    header.setMinimumSectionSize(1)
+    header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+    view.setStyleSheet('QHeaderView::section {padding:2px 3px;} QTableView::item {padding:0;}')
+    row_header=view.verticalHeader()
+    row_header.setMinimumSectionSize(1)
+
+    def fit_results(event=None):
+        metrics=header.fontMetrics()
+        extra_width=(18,6,20,20,22,34,36,40,40,31,65,51,8,53)
+        widths=[metrics.horizontalAdvance(title)+12 for title in AUDIT_VISIBLE_HEADERS]
+        # Reserve room for the sort indicator alongside the active header.
+        sorted_column=header.sortIndicatorSection()
+        if 0<=sorted_column<len(widths):
+            widths[sorted_column]+=12
+        available=max(0,view.viewport().width()-sum(widths))
+        total_weight=sum(extra_width)
+        for i,extra in enumerate(extra_width):
+            width=widths[i]+available*extra//total_weight
+            if header.sectionSize(i)!=width:
+                tree.column(str(i),width=width)
+        row_height=max(tree._font(None,numeric).metrics('linespace') for numeric in (True,False))+3
+        if row_header.defaultSectionSize()!=row_height:
+            row_header.setDefaultSectionSize(row_height)
+
+    tree.bind('<Configure>',fit_results,add='+')
+    header.sortIndicatorChanged.connect(lambda *_:fit_results())
     tree.tag_configure('suspect',background='#644C20',foreground='#FFFFFF')
     tree.tag_configure('info',background='#303E55',foreground='#FFFFFF')
     def current_filters():return {k:v.get() for k,v in filters.items()}
@@ -62,7 +96,7 @@ def open_audit(parent,desktop,center,open_file):
     def show_page():
         visible=selected[page*page_size:(page+1)*page_size]
         fill(tree,AUDIT_VISIBLE_HEADERS,[visible_review_values(x) for x in visible],numeric=(7,8))
-        apply_widths(tree,column_widths)
+        fit_results()
         for item,result in zip(tree.get_children(),visible):
             tree.item(item,tags=('suspect',) if result['state'] in ('분류 의심','증빙 확인 필요') else ('info',) if result['state']=='정보 부족' else ())
         page_text.set(f'{page+1}/{max(1,(len(selected)+page_size-1)//page_size)}쪽 · 표시 {len(selected):,}건 · 더블클릭: 상세 근거 · Excel: 표시 조건 전체')
@@ -71,14 +105,13 @@ def open_audit(parent,desktop,center,open_file):
         page=max(0,min(max(0,(len(selected)-1)//page_size),page+delta));show_page()
     for title,delta in [('다음',1),('이전',-1)]:ttk.Button(pager,text=title,command=lambda d=delta:move(d)).pack(side='right',padx=4)
     def render():
-        nonlocal selected,page,column_widths
+        nonlocal selected,page
         if data is None:return
         chosen=current_filters();q=query.get().strip().casefold()
         matched=select_reviews(data,source_year.get(),chosen,q)
         counts=Counter(x['state'] for x in matched)
         selected=[x for x in matched if not only_check.get() or x['state'] in CHECK_STATES];page=0
         info.set(f'원장 파일 연도: {source_year.get() or "없음"} · 조건 일치 {len(matched):,}건 · 확인 대상 {sum(counts[k] for k in CHECK_STATES):,}건 · 규칙 미등록 {counts["규칙 미등록"]:,}건')
-        column_widths=content_widths(tree,AUDIT_VISIBLE_HEADERS,(visible_review_values(x) for x in selected))
         show_page()
         status.set(' / '.join(data['issues']) or '과목 순서: 최신 재무제표 기준 · 원장에만 있는 과목은 해당 분류 끝에 표시 · 금액순 정렬 없음')
     def changed(key):options(key);render()

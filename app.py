@@ -238,7 +238,7 @@ def main():
             ('재무분석',lambda:open_analysis(root,desktop,center_window,open_result_file)),
             ('결산검토',lambda:open_closing_review(root,desktop,center_window)),
             ('계정과목 검토',lambda:open_audit(root,desktop,center_window,open_result_file)),
-            ('차입금관리',lambda:open_loans(root,desktop,center_window,open_result_file)),
+            ('차입금관리',lambda:open_loans(root,center_window,open_result_file)),
             ('임대사항',rental_view),
         ]),
         ('3. 업무도구',[

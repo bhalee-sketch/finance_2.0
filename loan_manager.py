@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
+from tempfile import NamedTemporaryFile
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.datetime import from_excel, WINDOWS_EPOCH, MAC_EPOCH
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -14,6 +15,7 @@ from loan_report_style import apply_loan_sample
 
 ZERO=Decimal(0)
 HEADERS=['예정 원금','예정 총이자','총원리금','납부원금','납부 총이자','총 납부 원리금','상태']
+BUNDLED_LOAN_DIR=Path(__file__).resolve().parent/'data'/'loans'/'originals'
 
 
 def target_year(value):
@@ -163,7 +165,7 @@ def style(wb):
                 if isinstance(cell.value,str):cell.data_type='s'
 
 
-def generate_loans(root,year):
+def build_loan_report(root,year,*,source_label=None):
     year=target_year(year);files=find_loan_files(root)
     scheduled=defaultdict(lambda:[ZERO,ZERO]);paid=defaultdict(lambda:[ZERO,ZERO]);warnings=[]
     infos=[analyze(p,scheduled,paid,warnings) for p in files]
@@ -172,7 +174,8 @@ def generate_loans(root,year):
     summary.append(['항목','금액',None,'분기',*HEADERS])
     totalp=sum((r[3] for r in infos),ZERO);pp=sum((r[4] for r in infos),ZERO)
     totali=sum((r[6] for r in infos),ZERO);pi=sum((r[7] for r in infos),ZERO)
-    for label,value in [('원본 폴더',str(Path(root).resolve())),('파일 수',len(files)),('총 원금',totalp),('상환 원금',pp),('남은 원금',max(totalp-pp,ZERO)),('총 이자',totali),('상환 이자',pi),('남은 이자',max(totali-pi,ZERO)),('조회 연도',year),('자료 확인 건수',len(warnings))]:summary.append([label,value])
+    source=('자료 출처',source_label) if source_label else ('원본 폴더',str(Path(root).resolve()))
+    for label,value in [source,('파일 수',len(files)),('총 원금',totalp),('상환 원금',pp),('남은 원금',max(totalp-pp,ZERO)),('총 이자',totali),('상환 이자',pi),('남은 이자',max(totali-pi,ZERO)),('조회 연도',year),('자료 확인 건수',len(warnings))]:summary.append([label,value])
     for q in range(1,5):
         values=status_row(f'{year}년 {q}분기',scheduled[year,q],paid[year,q])
         for c,v in enumerate(values,4):summary.cell(q+1,c,v)
@@ -199,5 +202,28 @@ def generate_loans(root,year):
     for row in [('총 원금','C열 마지막 0이 아닌 숫자 + P열 마지막 0이 아닌 숫자'),('총 이자','F열 마지막 0이 아닌 숫자 + Q열 마지막 0이 아닌 숫자'),('예정액','B열 예정일 기준, 원금 C열 / 이자 F+Q열'),('납부액','K열 납부일이 있는 행, 원금 C+P열 / 이자 F+Q열'),('납부 귀속','예정일이 있으면 예정일, 없으면 실제 납부일 기준'),('상태','납부 총원리금 ≥ 예정 총원리금이면 완료 (매크로 기준)'),('금액 해석','비숫자는 0으로 처리. 자료확인 시트가 있으면 확인 필요'),('조회 연도','요약 분기와 선택연도 상환예정표에 적용. 전체 현황은 모든 연도 포함')]:ws.append(row)
     style(wb)
     apply_loan_sample(wb)
+    return wb
+
+
+def build_bundled_loan_report(year):
+    if not BUNDLED_LOAN_DIR.is_dir():
+        raise ValueError('프로그램에 포함된 차입금 원자료가 없습니다.')
+    return build_loan_report(BUNDLED_LOAN_DIR,year,source_label='프로그램 내장 자료')
+
+
+def save_loan_report(wb):
     target=result_path('차입금관리')
-    wb.save(target);wb.close();return target
+    with NamedTemporaryFile(dir=target.parent,suffix='.tmp',delete=False) as stream:
+        temporary=Path(stream.name)
+    try:
+        wb.save(temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
+
+
+def generate_loans(root,year):
+    wb=build_loan_report(root,year)
+    try:return save_loan_report(wb)
+    finally:wb.close()

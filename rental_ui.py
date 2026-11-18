@@ -4,38 +4,77 @@ from decimal import Decimal
 import qt_ui as tk
 from qt_ui import ttk,messagebox
 from finance_ui import shell,fill
+from responsive_ui import wrapping_row
 from statement_ui import table,Jobs
 from statement_catalog import amount_text
 from analysis_charts import bars
 from rental_data import load_rentals,status,forecasts,contract_pdfs,table_rows,HEADERS,rounded_won,grouped_forecasts,update_rental,create_rental,clean
 
+CONTRACT_COLUMN_WIDTHS = (78, 137, 246, 89, 124, 154, 66, 101, 119, 104, 89, 112, 265)
+
 
 def open_rentals(parent,desktop,center,open_file):
-    window,body,message,jobs=shell(parent,'임대사항',center)
+    window,body,message,jobs=shell(parent,'임대사항',center,show_status=False)
     settings=desktop()/'settings';folder=settings/'contract'
     records=[];shown=[];issues=[];projection=[];group_headers=[];group_monthly=[];group_annual=[]
-    toolbar=ttk.Frame(body);toolbar.pack(fill='x',pady=(0,8))
+    toolbar=wrapping_row(body);toolbar.pack(fill='x',pady=(0,8))
+    centered=tk.C.Qt.AlignmentFlag.AlignVCenter
+
+    def control_group():
+        group_frame=ttk.Frame(toolbar)
+        layout=tk.W.QHBoxLayout(group_frame._q)
+        layout.setContentsMargins(0,0,0,0)
+        layout.setSpacing(5)
+        group_frame.pack(side='left')
+        return group_frame
+
+    def add_controls(group_frame,*widgets):
+        for widget in widgets:
+            group_frame._q.layout().addWidget(widget._q,0,centered)
+            widget._q.show()
+
+    def note(**kwargs):
+        label=ttk.Label(body,style='Muted.TLabel',wraplength=1120,**kwargs)
+        label._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Preferred)
+        return label
+
+    note(textvariable=message).pack(side='bottom',fill='x',pady=(6,3))
+
     group=tk.StringVar(value='전체');state=tk.StringVar(value='전체');query=tk.StringVar()
     asof=tk.StringVar(value=date.today().isoformat());year=tk.StringVar(value=str(date.today().year))
     for label,var,values in [('구분',group,['전체','대학','제네시스랩']),('계약 상태',state,['전체','유효','예정','만료/퇴거','기간 확인'])]:
-        ttk.Label(toolbar,text=label).pack(side='left',padx=(0,5))
-        combo=ttk.Combobox(toolbar,textvariable=var,values=values,width=12,state='readonly');combo.pack(side='left',padx=(0,8));combo.bind('<<ComboboxSelected>>',lambda e:render())
-    ttk.Label(toolbar,text='기준일').pack(side='left');ttk.Entry(toolbar,textvariable=asof,width=12).pack(side='left',padx=5)
-    ttk.Label(toolbar,text='예상 연도').pack(side='left');ttk.Spinbox(toolbar,textvariable=year,from_=1900,to=9998,width=6).pack(side='left',padx=5)
-    ttk.Button(toolbar,text='적용',command=lambda:render()).pack(side='left',padx=5)
-    refresh_button=ttk.Button(toolbar,text='새로고침',command=lambda:refresh());refresh_button.pack(side='left',padx=5);jobs.controls.append(refresh_button)
-    new_button=ttk.Button(toolbar,text='신규 입력',command=lambda:open_form());new_button.pack(side='left',padx=5);jobs.controls.append(new_button)
-    ttk.Entry(toolbar,textvariable=query,width=18).pack(side='left',padx=5)
+        controls=control_group()
+        combo=ttk.Combobox(controls,textvariable=var,values=values,width=12,state='readonly')
+        add_controls(controls,ttk.Label(controls,text=label),combo)
+        combo.bind('<<ComboboxSelected>>',lambda e:render())
+    controls=control_group()
+    add_controls(controls,ttk.Label(controls,text='기준일'),ttk.Entry(controls,textvariable=asof,width=12))
+    controls=control_group()
+    add_controls(controls,ttk.Label(controls,text='예상 연도'),
+                 ttk.Spinbox(controls,textvariable=year,from_=1900,to=9998,width=6))
+    actions=control_group()
+    refresh_button=ttk.Button(actions,text='새로고침',command=lambda:refresh())
+    new_button=ttk.Button(actions,text='신규 입력',command=lambda:open_form())
+    add_controls(actions,ttk.Button(actions,text='적용',command=lambda:render()),refresh_button,new_button)
+    jobs.controls.extend((refresh_button,new_button))
+    controls=control_group()
+    add_controls(controls,ttk.Entry(controls,textvariable=query,width=18))
+    row_height=max(child.winfo_reqheight() for child in toolbar.winfo_children())
+    for child in toolbar.winfo_children():
+        child._q.setMinimumHeight(row_height)
     query.trace_add('write',lambda *_:render())
-    summary=ttk.Frame(body);summary.pack(fill='x',pady=6)
+    summary=wrapping_row(body);summary.pack(fill='x',pady=6)
     values=[]
     for title in ('선택 자료 보증금','유효 계약 보증금','유효 계약 월 환산 수익','선택 연도 예상 수익'):
-        card=ttk.LabelFrame(summary,text=title,padding=10);card.pack(side='left',fill='both',expand=True,padx=3)
-        value=tk.StringVar(value='—');values.append(value);ttk.Label(card,textvariable=value,style='Accent.TLabel').pack(anchor='w')
-    ttk.Label(body,text='연 임대수익 우선 · 월 환산 = 연액 ÷ 12 · 월별 예상은 계약 유효일수로 안분 · 달력연도 기준\n실제 납부시점·자동 갱신·부가세 가감은 미반영합니다. 보증금은 원자료 기재액이며 반환 여부를 판정하지 않습니다.',style='Muted.TLabel',wraplength=1120).pack(anchor='w',pady=6)
+        card=ttk.LabelFrame(summary,text=title,padding=10);card.pack(side='left')
+        value=tk.StringVar(value='—');values.append(value)
+        ttk.Label(card,textvariable=value,style='Accent.TLabel',wraplength=195).pack(fill='x',anchor='w')
+    note(text='연 임대수익 우선 · 월 환산 = 연액 ÷ 12 · 월별 예상은 계약 유효일수로 안분 · 달력연도 기준\n실제 납부시점·자동 갱신·부가세 가감은 미반영합니다. 보증금은 원자료 기재액이며 반환 여부를 판정하지 않습니다.').pack(fill='x',pady=6)
     notebook=ttk.Notebook(body);notebook.pack(fill='both',expand=True)
     contract_tab=ttk.Frame(notebook);notebook.add(contract_tab,text='계약 및 보증금')
-    tree=table(contract_tab,HEADERS);tree.configure(selectmode='browse',style='Rental.Treeview')
+    tree=table(contract_tab,HEADERS,column_preferences=False)
+    tree.configure(selectmode='browse',style='Rental.Treeview')
+    tree._q.horizontalHeader().setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
     ttk.Style(tree).configure('Rental.Treeview',rowheight=30)
     from rental_row_buttons import ContractButtons
     pdf_buttons=ContractButtons(tree,lambda record:view_contract(record))
@@ -76,8 +115,9 @@ def open_rentals(parent,desktop,center,open_file):
         total=sum((r[key] for r in rows if r[key] is not None),Decimal(0))
         return amount_text(rounded_won(total))+'원'+(f' (미입력 {missing}건 제외)' if missing else '')
     def draw():
-        bars(canvas,group_headers,group_monthly,'월 예상 수익',legend_below_title=True)
-        bars(annual_canvas,['연도',*group_headers[1:]],group_annual,'연 예상 수익',legend_below_title=True)
+        bars(canvas,group_headers,group_monthly,'월 예상 수익',legend_below_title=True,whole_won=True,show_total=True)
+        bars(annual_canvas,['연도',*group_headers[1:]],group_annual,'연 예상 수익',legend_below_title=True,
+             whole_won=True,show_total=True)
     canvas.bind('<Configure>',lambda e:draw())
     annual_canvas.bind('<Configure>',lambda e:draw())
     def render():
@@ -95,8 +135,10 @@ def open_rentals(parent,desktop,center,open_file):
         rows=table_rows(shown,ref)
         totals=['확인금액 합계','','','','','','',*[rounded_won(sum((r[k] for r in shown if r[k] is not None),Decimal(0))) for k in ('deposit','monthly','annual')],'','','']
         fill(tree,HEADERS,rows+[totals],(7,8,9))
-        for i,width in enumerate((95,185,230,100,135,210,90,135,145,140,100,110,240)):tree.column(str(i),width=width,minwidth=45,stretch=False)
-        tree.column('12',width=240,minwidth=150,stretch=True)
+        for i,width in enumerate(CONTRACT_COLUMN_WIDTHS):
+            tree.column(str(i),width=width,stretch=False)
+        for name in ('사업자등록번호','상태','납부구분'):
+            tree.column(str(HEADERS.index(name)),anchor='center')
         tree.tag_configure('attention',foreground='#E9B875');tree.tag_configure('total',background='#244C70',foreground='#FFFFFF')
         for iid,r in zip(tree.get_children(),shown):
             if r['notes'] or status(r,ref)!='유효':tree.item(iid,tags=('attention',))

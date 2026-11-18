@@ -198,14 +198,16 @@ def segment_hits_box(segment,box):
     return True
 
 
-def value_labels(canvas,labels,left,top,right,bottom,segments=()):
+def value_labels(canvas,labels,left,top,right,bottom,segments=(),*,skip_overlaps=False):
     """모든 선을 그린 후 숫자를 최상단에 배치하고 인접 라벨 겹침을 피한다."""
     occupied=[]
     for x,y,text,color,size in labels:
-        item=canvas.create_text(x,y,text=text,fill=color,font=('맑은 고딕',size,'bold'),tags='chart_value')
+        anchor={'anchor':'s'} if skip_overlaps else {}
+        item=canvas.create_text(x,y,text=text,fill=color,font=('맑은 고딕',size,'bold'),tags='chart_value',**anchor)
         box=canvas.bbox(item)
         if not isinstance(box,(tuple,list)) or len(box)!=4:box=(x-len(text)*3.5,y-7,x+len(text)*3.5,y+7)
         half=(box[2]-box[0])/2+3;hh=(box[3]-box[1])/2+2
+        anchor_offset=y-(box[1]+box[3])/2 if skip_overlaps else 0
         x=max(left+half+10,min(right-half-6,x));chosen=None
         # Prefer labels above their own point. Use horizontal staggering before
         # falling back below, and keep all backgrounds clear of the y axis.
@@ -216,9 +218,13 @@ def value_labels(canvas,labels,left,top,right,bottom,segments=()):
             cx=max(left+half+10,min(right-half-6,x+dx));candidate=(cx-half,cy-hh,cx+half,cy+hh)
             if all(candidate[2]<b[0] or candidate[0]>b[2] or candidate[3]<b[1] or candidate[1]>b[3] for b in occupied) and not any(segment_hits_box(seg,candidate) for seg in segments):
                 chosen=(cx,cy,candidate);break
-        if chosen is None:chosen=(x,max(top+hh+3,min(bottom-hh,y)),(x-half,max(top+3,min(bottom-2*hh,y-hh)),x+half,max(top+3,min(bottom-2*hh,y-hh))+2*hh))
+        if chosen is None:
+            if skip_overlaps:
+                canvas.delete(item)
+                continue
+            chosen=(x,max(top+hh+3,min(bottom-hh,y)),(x-half,max(top+3,min(bottom-2*hh,y-hh)),x+half,max(top+3,min(bottom-2*hh,y-hh))+2*hh))
         cx,cy,candidate=chosen
-        occupied.append(candidate);canvas.coords(item,cx,cy)
+        occupied.append(candidate);canvas.coords(item,cx,cy+anchor_offset)
         canvas.create_rectangle(*candidate,fill=BG,outline='',tags='chart_value_background',state='disabled')
         canvas.itemconfigure(item,state='disabled');canvas.tag_raise(item)
 
@@ -275,26 +281,66 @@ def grant_bars(canvas,headers,rows,counts=None):
 
 
 @polished_chart
-def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False):
-    """선택 과목만 그리는 연도별 막대. 총액과 하위 과목을 다시 합산하지 않는다."""
+def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,whole_won=False,show_total=False):
+    """선택 과목의 막대를 그리고, 요청 시 각 구간의 합계선을 같은 축에 표시한다."""
     canvas.delete('all');w=max(canvas.winfo_width(),300);h=max(canvas.winfo_height(),220)
-    values=[float(v)/1e6 for r in rows for v in r[1:] if v is not None]
+    scale,unit=(1,'원') if whole_won else (1e6,'백만원')
+    def format_value(value):
+        return f'{int(value):,}' if whole_won else million(value)
+
+    def detail(period,name,value):
+        return f'{period} · {name}\n{format_value(value)}원' if whole_won else amount_detail(period,name,value)
+
+    names=list(headers[1:])
+    totals=[sum(row[1:]) if all(v is not None for v in row[1:]) else None for row in rows] if show_total else []
+    values=[float(v)/scale for r in rows for v in r[1:] if v is not None]
+    values.extend(float(v)/scale for v in totals if v is not None)
     if not values:
         canvas.create_text(w/2,h/2,text='비교할 과목과 결산 자료를 선택하세요.',fill='#A9B8CC');return
-    lo,hi,step=nice_axis(min([0]+values),max([0]+values)*1.16)
-    left=75;right=w-25;top=top_legend(canvas,headers[1:],w,24 if legend_below_title else 0)+12;bottom=h-35
-    y=lambda v:bottom-(float(v)/1e6-lo)/(hi-lo)*(bottom-top)
+    low,high=min(0,min(values)),max(0,max(values))
+    lo,hi,step=nice_axis(low*1.16 if whole_won else low,high*(1.25 if whole_won else 1.16))
+    legend=[*names,'합계'] if show_total else names
+    left=max(75,20+max(len(f'{int(lo):,}'),len(f'{int(hi):,}'))*8) if whole_won else 75
+    right=w-25;top=top_legend(canvas,legend,w,24 if legend_below_title else 0)+12;bottom=h-35
+    y=lambda v:bottom-(float(v)/scale-lo)/(hi-lo)*(bottom-top)
     for v in range(int(lo),int(hi)+1,int(step)):
-        pos=y(v*1e6);canvas.create_line(left,pos,right,pos,fill='#2C384B')
+        pos=y(v*scale);canvas.create_line(left,pos,right,pos,fill='#2C384B')
         canvas.create_text(left-8,pos,text=f'{v:,}',anchor='e',fill='#A9B8CC',font=('맑은 고딕',9))
     canvas.create_line(left,top,left,bottom,right,bottom,fill='#8D9CB3')
-    canvas.create_text(left,13,anchor='w',text=f'{amount_label} (백만원)',fill='#B9CCDF')
-    slot=(right-left)/len(rows);bw=slot*.72/max(1,len(headers)-1)
+    canvas.create_text(left,13,anchor='w',text=f'{amount_label} ({unit})',fill='#B9CCDF')
+    slot=(right-left)/len(rows);bw=slot*.72/max(1,len(names))
+    bar_labels=[];total_labels=[];segments=[]
     for i,row in enumerate(rows):
-        cx=left+slot*(i+.5);canvas.create_text(cx,bottom+16,text=row[0],fill='#C9D8E8',font=('맑은 고딕',9))
+        cx=left+slot*(i+.5)
+        period_anchor={'anchor':'n'} if whole_won else {}
+        canvas.create_text(cx,bottom+(8 if whole_won else 16),text=row[0],fill='#C9D8E8',font=('맑은 고딕',9),**period_anchor)
         for j,value in enumerate(row[1:]):
             if value is None:continue
             color=COLORS[j%len(COLORS)];x=cx-slot*.36+bw*j
-            item=canvas.create_rectangle(x,y(value),x+bw-2,y(0),fill=color,outline='')
-            bind_tip(canvas,item,amount_detail(row[0],headers[j+1],value))
-            canvas.create_text(x+bw/2,y(value)+(-10 if value>=0 else 10),text=million(value),fill=color,font=('맑은 고딕',9,'bold'))
+            bar_end=y(value)
+            item=canvas.create_rectangle(x,bar_end,x+bw-2,y(0),fill=color,outline='')
+            bind_tip(canvas,item,detail(row[0],names[j],value))
+            if whole_won:
+                bar_labels.append((x+(bw-2)/2,bar_end+(-20 if value>=0 else 20),format_value(value),color,9))
+                segments.append(((x,bar_end),(x+bw-2,bar_end)))
+            else:
+                canvas.create_text(x+bw/2,bar_end+(-10 if value>=0 else 10),text=format_value(value),fill=color,font=('맑은 고딕',9,'bold'))
+
+    color=COLORS[len(names)%len(COLORS)]
+    previous=None
+    for i,total in enumerate(totals):
+        if total is None:
+            previous=None
+            continue
+        point=(left+slot*(i+.5),y(total))
+        x,yy=point
+        if previous is not None:
+            draw_curve(canvas,(previous,point),color)
+            segments.append((previous,point))
+        previous=point
+        segments.append((point,point))
+        item=canvas.create_oval(x-4,yy-4,x+4,yy+4,fill=color,outline=BG)
+        bind_tip(canvas,item,detail(rows[i][0],'합계',total))
+        total_labels.append((x,yy-22,format_value(total),color,9))
+    if bar_labels or total_labels:
+        value_labels(canvas,total_labels+bar_labels,left,top,right,bottom,segments,skip_overlaps=whole_won)

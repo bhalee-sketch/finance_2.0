@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 import re
+from tempfile import NamedTemporaryFile
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -107,7 +108,7 @@ def append(ws, values):
     for cell in ws[ws.max_row]:
         if isinstance(cell.value,str): cell.data_type='s'
 
-def run_report(path,kind,**options):
+def build_report(path,kind,**options):
     path=Path(path);headers,rows=read_source(path,kind)
     out,groups,stats,sums,hidden=classify(kind,headers,rows,**options)
     wb=Workbook();summary=wb.active;summary.title='처리요약'
@@ -156,4 +157,22 @@ def run_report(path,kind,**options):
     if kind=='donation':
         from donation_report_style import apply_donation_sample
         apply_donation_sample(wb)
-    target=result_path(TITLES[kind]);wb.save(target);wb.close();return target
+    return wb
+
+
+def save_report(workbook,kind):
+    target=result_path(TITLES[kind])
+    with NamedTemporaryFile(dir=target.parent,suffix='.tmp',delete=False) as stream:
+        temporary=Path(stream.name)
+    try:
+        workbook.save(temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target
+
+
+def run_report(path,kind,**options):
+    workbook=build_report(path,kind,**options)
+    try:return save_report(workbook,kind)
+    finally:workbook.close()

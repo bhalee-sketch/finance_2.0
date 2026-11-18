@@ -76,12 +76,12 @@ class Jobs:
         self.window.after(100,poll)
 
 
-def table(parent,columns,cell_grid=False,auto_scroll=False,horizontal_scroll=True):
+def table(parent,columns,cell_grid=False,auto_scroll=False,horizontal_scroll=True,*,column_preferences=True):
     body=ttk.Frame(parent);body.pack(fill='both',expand=True)
     from statement_grid import StatementGrid
     from numeric_tree import NumericTreeview
     tree_class=StatementGrid if cell_grid else NumericTreeview
-    tree=tree_class(body,columns=columns,show='headings',height=10)
+    tree=tree_class(body,columns=columns,show='headings',height=10,column_preferences=column_preferences)
     y=ttk.Scrollbar(body,orient='vertical',command=tree.yview);x=ttk.Scrollbar(body,orient='horizontal',command=tree.xview)
     scroll_positions={}
     def scroll_changed(scrollbar,*values):

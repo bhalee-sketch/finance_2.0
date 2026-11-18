@@ -45,6 +45,47 @@ class AnalysisToolTests(unittest.TestCase):
         self.assertEqual(result['values']['transfer'],Decimal('1234'))
         self.assertEqual(result['sources']['transfer_file'],str(source))
 
+    def test_composition_panel_fit_coalesces_resize_events(self):
+        from financial_analysis_ui import open_financial_analysis
+
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
+        root=q.Tk()
+        try:
+            with tempfile.TemporaryDirectory() as folder, patch.object(q.Toplevel,'after_idle') as idle, \
+                    patch('statement_ui.Jobs.run'):
+                open_financial_analysis(root,lambda:Path(folder),app.center_window,lambda path:None)
+                window=next(child for child in root.winfo_children() if isinstance(child,q.Toplevel))
+                view=next(widget for widget in descendants(window) if isinstance(widget,q.Canvas)
+                          and any(widget.type(item)=='window' for item in widget.find_all()))
+                quadrants=view.winfo_children()[0]
+                tree=next(widget for widget in descendants(quadrants) if isinstance(widget,q.Treeview))
+                panel=tree.master.master
+                toolbar,=[widget for widget in panel.winfo_children() if widget is not tree.master]
+                q.application().processEvents()
+
+                tree._analysis_widths=[110,120,130,140]
+                with patch.object(tree,'xview',return_value=(0,.1)):
+                    view.event_generate('<Configure>')
+                    quadrants.event_generate('<Configure>')
+                    view.event_generate('<Configure>')
+                    idle.assert_called_once()
+                    fit_panels=idle.call_args.args[0]
+                    fit_panels()
+                expected=max(sum(tree._analysis_widths)+48,toolbar.winfo_reqwidth()+24)
+                self.assertEqual(quadrants._q.layout().columnMinimumWidth(1),expected)
+                self.assertEqual(panel.cget('width'),expected)
+
+                with patch.object(quadrants,'columnconfigure',wraps=quadrants.columnconfigure) as resize_column, \
+                        patch.object(view,'itemconfigure',wraps=view.itemconfigure) as resize_canvas:
+                    fit_panels()
+                    resize_column.assert_not_called()
+                    resize_canvas.assert_not_called()
+        finally:root.destroy()
+
     def test_analysis_menus_create_real_views(self):
         with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
             folder=Path(folder)
@@ -72,6 +113,11 @@ class AnalysisToolTests(unittest.TestCase):
                     self.assertEqual(window.title(),title)
                     self.assertTrue(window._q.findChildren(q.W.QPushButton),title)
                     self.assertFalse(any(label.text()=='준비 중' for label in window._q.findChildren(q.W.QLabel)))
+                    if title=='계정과목 검토':
+                        table=window._q.findChild(q.W.QTableView)
+                        self.assertGreater(table.model().rowCount(),0)
+                        self.assertLess(table.verticalHeader().defaultSectionSize(),32)
+                        self.assertLessEqual(table.horizontalHeader().length(),table.viewport().width())
                 self.assertFalse(errors)
             finally:root.destroy()
 

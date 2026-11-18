@@ -31,6 +31,6 @@ class ContractButtons:
             if not bounds:button.place_forget();continue
             x,y,w,h=bounds
             # Hide partially clipped buttons instead of covering adjacent columns/headings.
-            if x<0 or x+w>self.tree.winfo_width() or y<0 or h<10:
+            if x<0 or x+w>self.tree._q.viewport().width() or y<0 or h<10:
                 button.place_forget();continue
-            button.place(x=x+2,y=y+1,width=w-4,height=h-2)
+            button.place(x=x+8,y=y+2,width=w-16,height=h-4)
