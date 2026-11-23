@@ -47,20 +47,3 @@ for prefix,purposes in [('원금보존',('연구','건축','장학','특정목�
 
 # Income and balance-sheet accounts can legitimately have credit entries.
 CREDIT_ALLOWED={name for name,rule in CATALOG.items() if rule[3]!='payroll'}
-
-def review_catalog(name,description):
-    pages,definition,evidence,kind=CATALOG[name]
-    def has(*words):return any(word in description for word in words)
-    reason=None
-    if name=='단기수강료' and has('계절학기'):reason='계절학기 수업료 표현이 있어 학부·대학원 수업료 해당 여부를 확인하세요.'
-    if name in ('임대료수입','대여료및사용료') and has('보증금'):reason='보증금 표현이 있어 임대보증금수입과 임대료·사용료를 구분하세요.'
-    if name=='예금이자' and has('원금','만기해지'):reason='원금 또는 만기해지 표현이 있어 원금과 이자 수입을 분리한 내역을 확인하세요.'
-    if name=='일반기부금' and has('용도지정','지정기부','연구목적'):reason='기부 용도 지정 표현이 있어 지정기부금·연구기부금 해당 여부를 확인하세요.'
-    if name in ('자산전입금','자산전출금') and has('토지','건물','건축물'):reason='토지·건축물 표현이 있어 일반 자산전출입과 기본금 출연의 구분을 확인하세요.'
-    if name in ('도서','도서구입비') and has('구독료','부서간행물'):reason='부서 간행물·구독료 표현이 있어 소모품비 해당 여부를 확인하세요.'
-    if name=='조교인건비' and has('장학조교'):reason='장학조교는 유급조교 인건비에서 제외되므로 장학 성격을 확인하세요.'
-    if kind=='repayment' and has('이자'):reason='이자 표현이 있어 부채 원금 상환과 지급이자 비용을 구분하세요.'
-    if name in ('건물매입비','기계기구매입비','집기비품매입비') and has('유지보수','정기점검','단순수리'):reason='유지·수리 표현이 있어 신규 취득인지 관리비인지 확인하세요.'
-    if reason:return '증빙 확인 필요',reason
-    # Definitions alone cannot establish matching balances, funding or legality.
-    return '증빙 확인 필요',definition+' 적요만으로 확정할 수 없어 '+evidence+'를 확인하세요.'

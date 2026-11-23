@@ -6,7 +6,7 @@ from statement_ui import Jobs
 from statement_catalog import amount_text
 from analysis_runtime import program_statement_paths,statement_folder
 from statement_loader import load_statement_record_from_path
-from closing_review import review_carryover,review_fund_transfers
+from closing_review import review_carryover,review_fund_transfers,review_statement_totals
 from ui_theme import dark_titlebar
 from reserve_review import calculate
 from analysis_runtime import load_program_reserves as load_reserves
@@ -79,11 +79,11 @@ def open_closing_review(parent,desktop,center):
         clear();path=paths.get(year.get())
         if path is None:status.set('settings/finance statement에 연도별 재무제표가 없습니다.');return
         def done(payload):
-            result,comparisons,reserves,errors=payload
+            result,comparisons,reserves,errors,totals=payload
             render_reserves(reserves)
             rv=reserves['values'] if reserves else {}
             calculated=calculate(rv,rv.get('securities'))
-            summary.set_results(year.get(),result,comparisons,rv,calculated)
+            summary.set_results(year.get(),result,comparisons,rv,calculated,totals)
             for item in comparisons:
                 comparison.insert('','end',values=(item['section']+' 임의기금',amount_text(item['source']) if item['source'] is not None else '—',item['target'],amount_text(item['amount']) if item['amount'] is not None else '—',amount_text(item['difference']) if item['difference'] is not None else '—',item['state']))
             for group,name,amount in result['details']:tree.insert('','end',values=(group,name,amount_text(amount) if amount is not None else '—'))
@@ -106,7 +106,7 @@ def open_closing_review(parent,desktop,center):
             comparisons=review_fund_transfers(record)
             try:reserves=load_reserves(settings,selected,path,statement_record=record)
             except Exception as exc:errors.append(str(exc));reserves=None
-            return carry,comparisons,reserves,errors
+            return carry,comparisons,reserves,errors,review_statement_totals(record)
         jobs.run(work,done)
     def refresh():
         if jobs.busy:return

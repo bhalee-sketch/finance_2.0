@@ -53,6 +53,8 @@ class TaxResultTests(unittest.TestCase):
             opener=stack.enter_context(patch.object(app,'open_result_file'))
             from openpyxl import load_workbook
             memory_book=load_workbook(output)
+            from decimal import Decimal
+            memory_book['01월_매입세금']['D3']=Decimal('-22000.25')
             runner=stack.enter_context(patch('verifier.run',return_value=memory_book))
             app.main();root=q._default_root;errors=[]
             root.report_callback_exception=lambda *a:errors.append(str(a))
@@ -81,7 +83,9 @@ class TaxResultTests(unittest.TestCase):
                     if window._tax_results.tabs.count()==2:break
                     time.sleep(.01)
                 self.assertEqual(window._tax_results.tabs.count(),2)
-                self.assertEqual(len(window._tax_results.tree.get_children()),1)
+                tree=window._tax_results.tree
+                item,=tree.get_children()
+                self.assertEqual(tree.item(item,'values'),['양쪽','002','차이업체','-22,000.25','차이'])
                 self.assertIn('1건',window._work_status.get())
                 opener.assert_not_called()
                 self.assertFalse(list((folder/'검증결과').glob('*.xlsx')))

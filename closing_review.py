@@ -1,6 +1,6 @@
 """Registration-account carryover screening under an explicit advance-payment assumption."""
 from decimal import Decimal,InvalidOperation
-from statement_analysis import parse_fund,normalize
+from statement_analysis import parse_fund,normalize,optional_money
 
 
 def review_carryover(record):
@@ -95,4 +95,33 @@ def review_fund_transfers(record,scope='전체'):
         diff=source_value-target_value if source_value is not None and target_value is not None else None
         results.append(dict(section=section,target=target,source=source_value,amount=target_value,difference=diff,
                             state='자료 확인 필요' if notes or diff is None else '일치' if diff==0 else '불일치',notes=notes))
+    return results
+
+STATEMENT_TOTAL_CHECKS=(
+    ('자금계산서','결산',('자금수입총계','수입총계'),('자금지출총계','지출총계')),
+    ('재무상태표','당기',('자산총계',),('부채와기본금총계','부채및기본금총계','부채와자본금총계','부채및자본금총계')),
+    ('운영계산서','당기',('운영수익총계',),('비용총계','운영지출총계')),
+)
+
+
+def review_statement_totals(record):
+    """Compare the reported grand totals in each consolidated statement."""
+    results=[]
+    for name,column,left_labels,right_labels in STATEMENT_TOTAL_CHECKS:
+        sheets=[sheet for sheet in record['sheets'] if normalize(sheet['name'])==f'{name}(전체)']
+        sheet=sheets[0] if len(sheets)==1 else {}
+        headers=[normalize(header) for header in sheet.get('headers',())]
+        index=headers.index(column) if headers.count(column)==1 else None
+
+        def read_total(labels):
+            if index is None:return None
+            rows=[row for row in sheet['rows'] if row and normalize(row[0]).strip('[]') in labels]
+            if len(rows)!=1 or index>=len(rows[0]):return None
+            try:return optional_money(rows[0][index])
+            except ValueError:return None
+
+        left,right=read_total(left_labels),read_total(right_labels)
+        difference=left-right if left is not None and right is not None else None
+        state='자료 확인 필요' if difference is None else '일치' if difference==0 else '불일치'
+        results.append((name,state,difference,left_labels[0],left,right_labels[0],right))
     return results

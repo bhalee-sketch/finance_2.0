@@ -1,14 +1,18 @@
 """One-screen closing dashboard using existing review calculations only."""
 from qt_ui import ttk
 from statement_catalog import amount_text
+from closing_review import STATEMENT_TOTAL_CHECKS
 
 GOOD=('일치','1.0% 이내','한도 이내')
 BAD=('불일치','1.0% 초과','한도 초과')
 
 
 def dashboard_rows(payload):
-    if not payload:return [(name,'자료 확인 필요','—','—') for name in ('등록금 이월','기금 수입 대체','기금 지출 대체','감가상각비 내 전출','증권투자 한도')]
-    year,carry,comparisons,reserves,result=payload
+    if not payload:
+        names=('등록금 이월','기금 수입 대체','기금 지출 대체','감가상각비 내 전출','증권투자 한도',
+               *(check[0]+' 총계' for check in STATEMENT_TOTAL_CHECKS))
+        return [(name,'자료 확인 필요','—','—') for name in names]
+    year,carry,comparisons,reserves,result,totals=payload
     money=lambda v:'—' if v is None else amount_text(v)+'원'
     ratio=carry.get('ratio')
     rows=[('등록금 이월',carry['state'],'비율 '+('—' if ratio is None else f'{ratio:.4f}%')+' / 기준 1% 이하 ('+money(carry.get('limit'))+')','기타이월금 '+money(carry.get('other'))+' / 등록금 수입 '+money(carry.get('income')))]
@@ -16,6 +20,9 @@ def dashboard_rows(payload):
         rows.append(('기금 '+item['section']+' 대체',item['state'],'차이 '+money(item['difference']),'임의기금 '+money(item['source'])+' / '+item['target']+' '+money(item['amount'])))
     rows.append(('감가상각비 내 전출',result['capital_state'],'전출 '+money(reserves.get('transfer')),'건물감가상각비 한도 '+money(reserves.get('depreciation'))))
     rows.append(('증권투자 한도',result['securities']['state'],'투자원금 '+money(reserves.get('securities')),'비등록금 재원 적립금의 50% 한도 '+money(result['securities']['limit'])))
+    for name,state,difference,left_label,left,right_label,right in totals:
+        rows.append((name+' 총계',state,'차이 '+money(difference),
+                     f'{left_label} {money(left)} / {right_label} {money(right)}'))
     return rows
 
 
@@ -26,8 +33,8 @@ class ClosingDashboard(ttk.Frame):
     def clear(self):
         if self.payload is not None:
             self.payload=None;self.render()
-    def set_results(self,year,carry,comparisons,reserves,calculated):
-        self.payload=year,carry,comparisons,reserves,calculated;self.render()
+    def set_results(self,year,carry,comparisons,reserves,calculated,totals):
+        self.payload=year,carry,comparisons,reserves,calculated,totals;self.render()
     def render(self):
         for child in self.winfo_children():child.destroy()
         rows=dashboard_rows(self.payload)

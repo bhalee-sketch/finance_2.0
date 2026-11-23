@@ -14,7 +14,7 @@ from statement_loader import load_statement_record_from_path
 from statement_analysis import parse_fund
 
 DOCUMENT='사학기관 재무회계 규칙에 대한 특례규칙 해설서(2023.12)'
-RULE_VERSION='2023.12-review-v4'
+RULE_VERSION='2023.12-review-v5'
 RULES={
  '건축물관리비':('BUILDING','362~363, 373','일상적인 건물 유지·보수와 경제적 가치·내용연수를 늘리는 자본적 지출 또는 자산 취득을 구분합니다.','공사계약서·견적/내역서·준공자료·자산대장·자본적 지출 내부 기준'),
  '회의비':('MEETING','371','회의 지출은 회의 사실을 근거로 처리하며 적격증빙과 회의록 등이 필요합니다.','회의록·참석자·지출결의서·영수증'),
@@ -24,16 +24,16 @@ RULES={
  '소모품비':('SUPPLIES','366, 373','일반 사무 소모품과 내용연수 1년 이상 집기비품 취득은 구분하여 검토합니다.','구매명세·물품규격·자산대장·내부 자산관리 기준'),
  '업무추진비':('BUSINESS','368, 373','업무 관련성 증빙과 교직원/외부인 지출 대상 구분을 확인합니다.','업무 목적·참석자/수혜자·지출결의서·영수증'),
 }
-from audit_account_rules import ACCOUNTS,review_extra
-from audit_balance_rules import CATALOG,CREDIT_ALLOWED,review_catalog
+from audit_account_rules import ACCOUNTS
+from audit_balance_rules import CATALOG,CREDIT_ALLOWED
 for _name,(_pages,_definition,_evidence,_clues) in ACCOUNTS.items():
     RULES[_name]=('ACCOUNT_'+_name,_pages,_definition,_evidence)
 
 for _name,(_pages,_definition,_evidence,_kind) in CATALOG.items():
     RULES[_name]=('CATALOG_'+_name,_pages,_definition,_evidence)
 
-CHECK_STATES={'분류 의심','증빙 확인 필요','정보 부족'}
-AUDIT_HEADERS=['확인 상태','년도','회계단위','관','항','목','회계일자','전표번호','차변','대변','거래선명','적요','확인 사유','근거 페이지','확인할 증빙','원본 파일','원본 행']
+REVIEW_VIEWS=('분류 의심','적요 불충분','전체')
+AUDIT_HEADERS=['확인 상태','년도','회계단위','관','항','현재 과목','회계일자','전표번호','차변','대변','거래선명','적요','걸린 표현','검토할 과목','확인 사유','근거 페이지','원본 파일','원본 행']
 
 
 def normalized(value):return re.sub(r'[\s·ㆍ]','',str(value or ''))
@@ -46,63 +46,91 @@ def rule_for(subject):
     return name,RULES.get(name)
 
 
+# Each candidate needs a specific expression in the posting's own narrative.
+# The optional third field requires purchase language for ambiguous asset names.
+CONFLICT_RULES = {
+    '차량유지비': [('자동차보험료 차량보험료 자동차보험 차량보험 보험료', '보험료')],
+    '지급수수료': [('법률자문 회계자문 노무자문 회계감사 감정평가 세무용역', '일반용역비')],
+    '여비교통비': [('복사용지 토너 사무용품구입', '소모품비')],
+    '홍보비': [('입시 신입생모집 입학홍보 수시모집 정시모집', '입시경비')],
+    '통신비': [('휴대폰구입 전화기구입 장비구입', '집기비품매입비·기계기구매입비')],
+    '실험실습비': [('기자재구입 장비구입 기계구입', '기계기구매입비')],
+    '장비관리비': [('신규구입 신규취득 자산취득', '기계기구매입비·집기비품매입비')],
+    '건축물관리비': [('증축 신축 건물취득 건축물취득', '건물매입비·건설중인자산'),
+                ('청소용역 청소위탁', '시설용역비'), ('청소용품 세제구입', '소모품비')],
+    '소모품비': [('노트북 컴퓨터 냉장고 에어컨 냉난방기 책상', '집기비품매입비·기계기구매입비', '구입 구매 취득')],
+    '복리후생비': [('학생장학', '교내장학금·교외장학금'), ('학생지원', '학생지원비'),
+              ('논문심사료', '논문심사료'), ('복사용지 토너', '소모품비')],
+    '업무추진비': [('조의 축의 경조 명절선물', '복리후생비', '교직원 직원 교원')],
+    '교육훈련비': [('학생대상', '학생지원비')],
+    '회의비': [('회식', '복리후생비')],
+    '지급이자': [('원금상환', '차입금 상환 과목')],
+    '단기수강료': [('계절학기', '학부수업료·대학원수업료')],
+    '대여료및사용료': [('보증금', '임대보증금수입')],
+    '임대료수입': [('보증금', '임대보증금수입')],
+    '일반기부금': [('용도지정 지정기부', '지정기부금'), ('연구목적', '연구기부금')],
+    '조교인건비': [('장학조교', '교내장학금·교외장학금')],
+    '도서': [('구독료 부서간행물', '소모품비')],
+    '도서구입비': [('구독료 부서간행물', '소모품비')],
+    '건물매입비': [('유지보수 정기점검 단순수리', '건축물관리비')],
+    '기계기구매입비': [('유지보수 정기점검 단순수리', '장비관리비')],
+    '집기비품매입비': [('유지보수 정기점검 단순수리', '장비관리비')],
+    '자산전입금': [('토지 건축물 건물', '설립자기본금·기타기본금')],
+}
+for _name, (_, _, _, _kind) in CATALOG.items():
+    if _kind == 'repayment':
+        CONFLICT_RULES[_name] = [('이자', '지급이자')]
+
+# These contexts weaken a keyword match enough to leave it out of the default list.
+EXCLUDE_CONTEXT = {
+    '회의비': ('회의', '간담회', '협의회'),
+    '소모품비': ('부품', '소모품', '수리', '토너', '충전기', '케이블', '마우스', '배터리', '가방', '책상조명', '책상용', '노트북용', '컴퓨터용', '거치대'),
+    '교육훈련비': ('교원', '직원'),
+}
+
+
 def inspect_record(record):
-    name,rule=rule_for(record['목']);description=normalized(record['적요'])
-    result={'record':record,'state':'규칙 미등록','reason':'이 목의 적요 점검 규칙은 아직 등록되지 않았습니다.',
-            'reference':'','evidence':'','rule_id':''}
-    if rule is None:return result
-    identifier,pages,explanation,evidence=rule
-    result.update(state='탐지 사항 없음',reason='등록된 제한적 규칙에서 의심 표현이 탐지되지 않았습니다. 적정성 확정 판정은 아닙니다.',
-                  reference=f'{DOCUMENT} · 본문 {pages}쪽',evidence=evidence,rule_id=identifier)
-    def flag(state,reason):result.update(state=state,reason=reason+' '+explanation);return result
-    if not description or description in ('지급','비용지급','비용','대금지급',name,name+'지급',name+'집행'):
-        return flag('정보 부족','적요만으로 지출 목적·대상을 구분하기 어렵습니다.')
-    reversal_terms=('취소','환입','반납','정정','환불','아님','아닌','제외')
-    if any(t in description for t in reversal_terms) or (name not in CATALOG and '대체' in description) or (name not in CATALOG and (record['차변']<0 or record['대변']<0)) or (name not in CREDIT_ALLOWED and record['대변']!=0):
-        return flag('정보 부족','취소·환입·정정·대체 또는 대변 거래 가능성이 있어 원거래 확인 후 분류를 판단해야 합니다.')
-    if name in CATALOG:
-        result['reference']=f'{DOCUMENT} · 부록 {pages}쪽'
-        state,reason=review_catalog(name,description)
-        result.update(state=state,reason=reason)
+    name, rule = rule_for(record['목'])
+    memo = str(record['적요'] or '')
+    description = normalized(memo)
+    result = dict(record=record, state='규칙 미등록', reason='등록된 과목 규칙이 없습니다.',
+                  clue='', candidate='', reference='')
+    if rule is None:
         return result
-    if name in ACCOUNTS:
-        state,reason=review_extra(name,description)
-        return flag(state,reason)
-    if name=='건축물관리비':
-        if any(t in description for t in ('증축','신축','건물취득','건축물취득','내용연수연장','자산취득')):
-            return flag('분류 의심','건물 가치·내용연수 증가 또는 취득을 나타내는 표현이 있습니다. 자산 계상 대상인지 공사 실질을 확인하세요.')
-        if '청소' in description:
-            result['reference']=f'{DOCUMENT} · 본문 362~364쪽 · 부록 470쪽'
-            result['evidence']='청소 계약서·작업내역·용품 또는 장비 구매/수리명세'
-            if any(t in description for t in ('용품','세제','청소기','장비','수리')):
-                return flag('증빙 확인 필요','청소 관련 물품·장비 표현이 있습니다. 청소용역인지 소모품 구입 또는 장비 수리·취득인지 구분하세요.')
-            result.update(state='증빙 확인 필요',reason='건물 청소라는 유지 활동이 확인됩니다. 해설서의 시설용역비(청소·경비 등)에 해당하는 비용인지 계약·작업내역을 확인하세요.')
+
+    section = '부록' if name in CATALOG else '본문'
+    result['reference'] = f'{DOCUMENT} · {section} {rule[1]}쪽'
+    if not description or description in ('지급','비용지급','비용','대금','대금지급','집행','구입','수입','입금',
+                                         name,name+'지급',name+'집행'):
+        result.update(state='적요 불충분', reason='거래의 목적이나 대상이 적요에 드러나지 않습니다.')
+        return result
+
+    if (any(term in description for term in ('취소','환입','반납','정정','환불','아님','아닌','제외'))
+            or (name not in CATALOG and ('대체' in description or record['차변'] < 0 or record['대변'] < 0))
+            or (name not in CREDIT_ALLOWED and record['대변'] != 0)):
+        result.update(state='원거래 확인', reason='취소·정정 표현 또는 차대변 방향 등으로 원거래와 함께 검토할 항목입니다.')
+        return result
+
+    if not any(term in description for term in EXCLUDE_CONTEXT.get(name, ())):
+        for words, candidate, *qualifiers in CONFLICT_RULES.get(name, ()):
+            clue = next((word for word in words.split() if word in description), None)
+            if not clue:
+                continue
+            if clue == '회식' and not re.search(r'회식(?![사대])', memo):
+                continue
+            clues = [clue]
+            if qualifiers:
+                qualifier = next((word for word in qualifiers[0].split() if word in description), None)
+                if not qualifier:
+                    continue
+                clues.append(qualifier)
+            # Keep the original spacing and punctuation in the words shown to the reviewer.
+            excerpts = [re.search(r'[\s·ㆍ]*'.join(map(re.escape, word)), memo).group() for word in clues]
+            result.update(state='분류 의심', clue=' · '.join(excerpts), candidate=candidate,
+                          reason=f'적요에 {candidate} 관련 표현이 있습니다.')
             return result
-        if any(t in description for t in ('리모델링','대수선','설치','인수','교체','냉난방기','에어컨','승강기')):
-            return flag('증빙 확인 필요','공사·설비 지출의 성격이 적요만으로 명확하지 않습니다. 단순 유지보수인지 자산 취득·성능 개선인지 확인하세요.')
-        if not any(t in description for t in ('보수','수리','방수','도장','유지','관리','파손')):
-            return flag('정보 부족','건물 유지·보수 목적과 공사 범위를 적요만으로 확인하기 어렵습니다.')
-    if name=='회의비':
-        if '회식' in description and '회의' not in description:return flag('분류 의심','회의비 적요에 회식이 기재되어 있어 회의 목적의 지출인지 확인이 필요합니다.')
-        if any(t in description for t in ('회의','간담회','협의회')):return flag('증빙 확인 필요','적요에 회의 관련 표현이 있으나 실제 회의 개최 여부와 참석자는 증빙으로 확인해야 합니다.')
-        return flag('정보 부족','회의 개최 사실·목적이 적요에서 명확하지 않습니다.')
-    if name=='차량유지비' and any(t in description for t in ('보험료','자동차보험','차량보험')):
-        return flag('분류 의심','차량 보험 관련 지출로 보입니다. 보험료 계정 해당 여부를 확인하세요.')
-    if name=='복리후생비':
-        if any(t in description for t in ('학생지원','학생장학','논문심사료','복사용지','토너')):
-            return flag('분류 의심','교직원 복리후생과 다른 목적의 표현이 있습니다. 수혜자와 구입 목적을 확인하세요.')
-        if any(t in description for t in ('외부인','외빈','거래처','내빈')):
-            return flag('증빙 확인 필요','외부 대상 지출 표현이 있습니다. 수혜자와 업무추진비 해당 여부를 확인하세요.')
-        if any(t in description for t in ('식대','식사','선물','경조','조의','축의')) and not any(t in description for t in ('교직원','직원','교원')):
-            return flag('정보 부족','식사·선물·경조사 등의 수혜자가 적요에 명확하지 않습니다.')
-    if name=='여비교통비' and any(t in description for t in ('복사용지','토너','사무용품구입')):
-        return flag('분류 의심','출장 여비보다 물품 구입으로 보이는 표현이 있어 지출 목적을 확인해야 합니다.')
-    if name=='소모품비' and any(t in description for t in ('노트북','컴퓨터','냉장고','에어컨','냉난방기','책상')):
-        return flag('증빙 확인 필요','내구성 물품 관련 표현이 있습니다. 소모품·부품·수리인지 자산 취득인지 규격과 사용기간을 확인하세요.')
-    if name=='업무추진비':
-        if any(t in description for t in ('교직원','직원','교원')) and any(t in description for t in ('조의','축의','경조','명절선물')):
-            return flag('분류 의심','내부 교직원 경조·선물 표현이 있어 복리후생 목적 여부를 확인해야 합니다.')
-        return flag('증빙 확인 필요','업무 관련성을 확인할 목적·참석자·수혜자 증빙이 필요합니다.')
+
+    result.update(state='탐지 사항 없음', reason='적요에서 다른 계정과목을 검토할 단서를 찾지 못했습니다.')
     return result
 
 
@@ -215,29 +243,32 @@ def trend_values(history,filters):
 def review_values(item):
     r=item['record']
     return [item['state'],*[r[k] for k in ('년도','회계단위','관','항','목','회계일자','전표번호','차변','대변','거래선명','적요')],
-            item['reason'],item['reference'],item['evidence'],r.get('_source_file',''),r.get('_source_row','')]
+            item['clue'],item['candidate'],item['reason'],item['reference'],r.get('_source_file',''),r.get('_source_row','')]
 
 
 def export_review(data,items,filters,target):
     wb=Workbook();sheet=wb.active;sheet.title='계정과목 검토';append_row(sheet,AUDIT_HEADERS)
     for item in items:
         append_row(sheet,review_values(item))
-        if item['state'] in CHECK_STATES:
+        if item['state'] == '분류 의심':
             for index in range(1,len(AUDIT_HEADERS)+1):sheet.cell(sheet._current_row,index).fill=PatternFill('solid',fgColor='FFF2CC')
     criteria=wb.create_sheet('점검 기준');append_row(criteria,['항목','내용'])
     for row in [('자료',DOCUMENT),('규칙 버전',RULE_VERSION),('점검 범위',f'등록된 {len(RULES)}개 과목군의 적요 표현을 이용한 예비 점검. 문서에 없는 기준은 임의 적용하지 않습니다.'),
-                ('판정 한계','탐지 사항 없음은 적정 판정이 아닙니다. 규칙 미등록은 미점검이며, 증빙과 내부 규정·해당 연도 규정 확인이 필요합니다.'),
+                ('판정 한계','탐지 사항 없음은 적정 판정이 아닙니다. 규칙 미등록은 미점검이며, 판정은 적요에 적힌 표현에 한정합니다.'),
                 ('과목 순서','최신 재무제표 순서 → 이전 연도 추가 과목 → 원장에만 있는 과목. 금액순 정렬 없음.')]:append_row(criteria,row)
     for k,v in filters.items():append_row(criteria,[k,v or '전체'])
     for path in data['sources']:append_row(criteria,['원본',path])
     for issue in data['issues']:append_row(criteria,['자료 확인 필요',issue])
-    for account,(identifier,pages,reason,evidence) in RULES.items():append_row(criteria,[f'{identifier} · {account}',f'본문 {pages}쪽 | {reason} | 확인: {evidence}'])
+    for account, rules in CONFLICT_RULES.items():
+        for words, candidate, *qualifiers in rules:
+            condition = f' (함께 기재: {qualifiers[0]})' if qualifiers else ''
+            append_row(criteria,[account, f'{words}{condition} → {candidate}'])
     for state,count in Counter(x['state'] for x in items).items():append_row(criteria,[state,count])
     for s in wb:format_sheet(s)
-    for column in ('B','P','Q'):sheet.column_dimensions[column].hidden=True
+    for column in ('B','Q','R'):sheet.column_dimensions[column].hidden=True
     for row in sheet.iter_rows(min_row=2):
-        for c in row:c.alignment=Alignment(horizontal='right' if c.column in (9,10,17) else 'left',vertical='top',wrap_text=True)
-        line_count=max((max(1,(sum(2 if ord(ch)>127 else 1 for ch in str(c.value or ''))+63)//64) for c in row if c.column not in (2,16,17)),default=1)
+        for c in row:c.alignment=Alignment(horizontal='right' if c.column in (9,10,18) else 'left',vertical='top',wrap_text=True)
+        line_count=max((max(1,(sum(2 if ord(ch)>127 else 1 for ch in str(c.value or ''))+63)//64) for c in row if c.column not in (2,17,18)),default=1)
         sheet.row_dimensions[row[0].row].height=max(36,min(240,line_count*15+8))
     criteria.column_dimensions['B'].width=110
     return save_atomic(wb,target)

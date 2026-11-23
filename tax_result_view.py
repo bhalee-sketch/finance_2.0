@@ -91,15 +91,18 @@ class TaxResultView:
             self.note.set('표시할 검증 결과가 없습니다.');return
         sheet=self.sheets[index];columns=[str(i) for i in range(len(sheet['headers']))]
         self.tree.configure(columns=columns)
-        for column,header in zip(columns,sheet['headers']):
+        numeric_columns=set()
+        for index_column,(column,header) in enumerate(zip(columns,sheet['headers'])):
             self.tree.heading(column,text=header)
             numeric=any(word in str(header) for word in ('가액','세액','금액','차이')) and header!='금액검증'
+            if numeric:numeric_columns.add(index_column)
             self.tree.column(column,width=135 if numeric else 170,anchor='e' if numeric else 'w',stretch=False)
         self.note.set(f'{sheet["name"]} · 차이·확인필요 {len(sheet["rows"]):,}건' if sheet['rows'] else f'{sheet["name"]} · 차이가 없습니다.')
         def chunk(start=0):
             if generation!=self.generation or not self.frame.winfo_exists():return
             for row in sheet['rows'][start:start+100]:
-                values=[amount_text(v) if isinstance(v,(int,float)) else ('' if v is None else str(v)) for v in row]
+                values=[amount_text(value) if index_column in numeric_columns else ('' if value is None else str(value))
+                        for index_column,value in enumerate(row)]
                 self.tree.insert('','end',values=values,tags=('review',))
             if start+100<len(sheet['rows']):self.frame.after(1,lambda:chunk(start+100))
         self.fit_columns()
