@@ -163,7 +163,7 @@ def check_for_setup(root,folder,current,status):
                     dialog.after(500,dialog.destroy)
                 elif kind=='downloaded':
                     status.set('업데이트 설치 및 재시작 중…')
-                    notice.set('검증 완료 · 설치를 위해 Work Space를 다시 시작합니다.')
+                    notice.set('검증 완료 · Setup 창에서 설치를 진행해 주세요.')
                     dialog.after_idle(lambda:install(value))
                 else:
                     status.set(f'현재 {current} · 업데이트 확인 또는 다운로드 불가')

@@ -99,11 +99,9 @@ jobs:
             }
             Remove-Item Env:WORKSPACE_READY_FILE
           }
-          $launcher = Start-Process -FilePath $env:WORKSPACE_SETUP -ArgumentList "/AUTORESTART=1 /D=$install" -PassThru
           try {
-            if (!$launcher.WaitForExit(120000) -or $launcher.ExitCode -ne 0) {
-              throw "The interactive updater did not finish installation."
-            }
+            python scripts/verify_setup_wizard.py $env:WORKSPACE_SETUP $install
+            if ($LASTEXITCODE -ne 0) { throw "The update Setup wizard did not complete." }
             $started = $null
             for ($i = 0; $i -lt 45 -and !$started; $i++) {
               $started = Get-Process WorkSpaceApp -ErrorAction SilentlyContinue |
@@ -112,7 +110,6 @@ jobs:
             }
             if (!$started) { throw "The installed launcher did not start WorkSpaceApp." }
           } finally {
-            if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id -Force }
             Get-Process WorkSpaceApp -ErrorAction SilentlyContinue |
               Where-Object { $_.Path -eq "$folder\WorkSpaceApp.exe" } | Stop-Process -Force
           }

@@ -21,10 +21,10 @@ Var InstallMutex
 !define MUI_ICON "..\assets\workspace.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\WorkSpace.exe"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipUpdatePage
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW ShowUpdateDirectory
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipUpdatePage
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW ShowUpdateFinish
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -65,9 +65,21 @@ Function .onInit
   done:
 FunctionEnd
 
-Function SkipUpdatePage
-  StrCmp $AutoRestart "1" 0 +2
-  Abort
+Function ShowUpdateDirectory
+  StrCmp $AutoRestart "1" 0 done
+  ${NSD_SetText} $mui.DirectoryPage.Text "아래 폴더에 설치된 Work Space를 업데이트합니다. 설치를 눌러 계속하세요."
+  EnableWindow $mui.DirectoryPage.Directory 0
+  EnableWindow $mui.DirectoryPage.BrowseButton 0
+  done:
+FunctionEnd
+
+Function ShowUpdateFinish
+  StrCmp $AutoRestart "1" 0 done
+  ShowWindow $mui.FinishPage.Run ${SW_HIDE}
+  ${NSD_SetText} $mui.FinishPage.Text "업데이트 설치가 완료되었습니다.$\r$\n$\r$\n마침을 누르면 Work Space가 자동으로 다시 시작됩니다."
+  GetDlgItem $0 $HWNDPARENT 1
+  ${NSD_SetFocus} $0
+  done:
 FunctionEnd
 
 Function .onInstSuccess
@@ -82,8 +94,6 @@ Function .onInstSuccess
 FunctionEnd
 
 Section "Work Space"
-  StrCmp $AutoRestart "1" 0 +2
-  SetAutoClose true
   SetRegView 64
   SetShellVarContext current
   SetOutPath "$INSTDIR\versions\${VERSION}"
