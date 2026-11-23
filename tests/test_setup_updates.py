@@ -51,8 +51,8 @@ def test_setup_download_is_exposed_only_after_hash_verification(tmp_path, valid)
     assert sorted(file.name for file in (tmp_path / 'downloads').iterdir()) == ([filename] if valid else [])
 
 
-@pytest.mark.parametrize('work_open', [False, True])
-def test_update_window_tracks_download_and_protects_open_work(tmp_path, work_open):
+@pytest.mark.parametrize('accepted', [False, True])
+def test_centered_update_confirmation_then_automatic_restart(tmp_path, accepted):
     import os
     from types import SimpleNamespace
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -60,35 +60,41 @@ def test_update_window_tracks_download_and_protects_open_work(tmp_path, work_ope
     from startup_update import check_for_setup
 
     root=tk.Tk()
-    installer=tmp_path/'WorkSpace-Setup-3.3.8-x64.exe'
+    installer=tmp_path/'WorkSpace-Setup-3.4.0-x64.exe'
     pending=[]
-    root._launcher=SimpleNamespace(workspace=SimpleNamespace(tabs={'work':object()} if work_open else {}))
-    def download(folder,setup,progress):
+    def fetch(folder,setup,progress):
         progress(40)
         return installer
     try:
-        with patch.object(root,'after',side_effect=lambda delay,callback:pending.append(callback)), \
-             patch.object(tk.Toplevel,'after',side_effect=lambda delay,callback:pending.append(callback)), \
+        with patch.object(tk.Toplevel,'after',side_effect=lambda delay,callback:pending.append(callback)), \
              patch('startup_update.threading.Thread') as thread, \
-             patch('startup_update.latest_setup',return_value=('3.3.8','url')), \
-             patch('startup_update.download_setup',side_effect=download), \
+             patch('startup_update.latest_setup',return_value=('3.4.0','url')), \
+             patch('startup_update.download_setup',side_effect=fetch) as download, \
              patch('startup_update.subprocess.Popen') as launch:
             thread.side_effect=lambda target,daemon:SimpleNamespace(start=target)
             status=tk.StringVar()
-            check_for_setup(root,tmp_path,'3.3.7',status)
-            pending.pop(0)()
+            check_for_setup(root,tmp_path,'3.3.9',status)
             dialog,=[child for child in root.winfo_children() if isinstance(child,tk.Toplevel)]
-            assert dialog.title()=='Work Space 업데이트'
-            assert dialog._q.findChild(tk.W.QProgressBar).value()==100
-            assert '설치 준비 완료' in status.get()
+            assert dialog.title()=='업데이트 확인'
+            assert root.grab_current() is dialog
+            buttons={button.text():button for button in dialog._q.findChildren(tk.W.QPushButton)}
+            assert not buttons['지금 업데이트'].isEnabled()
             pending.pop(0)()
-            if work_open:
+            download.assert_not_called()
+            assert '업데이트 가능' in status.get()
+            if not accepted:
+                buttons['건너뛰기'].click()
+                assert not dialog.winfo_exists()
+                assert root.winfo_exists()
+                download.assert_not_called()
                 launch.assert_not_called()
-                button=next(w for w in dialog._q.findChildren(tk.W.QPushButton) if w.text()=='업데이트 후 재시작')
-                with patch.object(tk.messagebox,'askyesno',side_effect=[False,True]):
-                    button.click()
-                    launch.assert_not_called()
-                    button.click()
+                return
+            buttons['지금 업데이트'].click()
+            download.assert_called_once()
+            pending.pop(0)()
+            assert dialog._q.findChild(tk.W.QProgressBar).value()==100
+            assert '재시작 중' in status.get()
+            pending.pop(0)()
             launch.assert_called_once()
             assert '/AUTORESTART=1 /WAITPID=' in launch.call_args.args[0]
             assert launch.call_args.args[0].endswith(' /D='+str(tmp_path))
