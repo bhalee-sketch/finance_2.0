@@ -215,7 +215,7 @@ class PackLayout(W.QLayout):
             x=parcel.left() if 'w' in anchor else parcel.right()-w+1 if 'e' in anchor else parcel.center().x()-w//2
             # Center ordinary left/right toolbar items regardless of their height.
             vertical_anchor='' if horizontal and anchor=='center' else anchor
-            y=parcel.top() if 'n' in vertical_anchor else parcel.bottom()-h+1 if 's' in vertical_anchor else parcel.center().y()-h//2
+            y=parcel.top() if 'n' in vertical_anchor else parcel.bottom()-h+1 if 's' in vertical_anchor else parcel.top()+(parcel.height()-h)//2
             item.setGeometry(C.QRect(x,y,max(0,w),max(0,h)))
 
 class EventFilter(C.QObject):
