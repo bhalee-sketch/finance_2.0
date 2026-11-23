@@ -141,9 +141,10 @@ def latest_setup(current):
     return latest
 
 
-def download_setup(folder, setup):
-    """Download and verify the installer before making it available to the exit handler."""
+def download_setup(folder, setup, progress=lambda percent:None):
+    """Download and verify the installer before making it available for installation."""
     version,url=setup
+    version_key(version)
     filename=f'WorkSpace-Setup-{version}-x64.exe'
     if url!=f'https://github.com/{SETUP_REPOSITORY}/releases/download/v{version}/{filename}':
         raise UpdateError('지원하지 않는 설치 파일 주소입니다.')
@@ -160,11 +161,14 @@ def download_setup(folder, setup):
     digest=hashlib.sha256();received=0
     try:
         with opener.open(url,timeout=30) as response,part.open('wb') as output:
+            length=response.headers.get('Content-Length','') if hasattr(response,'headers') else ''
+            total=int(length) if length.isascii() and length.isdecimal() else 0
             while block:=response.read(1024*1024):
                 received+=len(block)
                 if received>MAX_ARCHIVE:raise UpdateError('설치 파일 크기 제한을 초과했습니다.')
                 digest.update(block)
                 output.write(block)
+                if total:progress(min(99,received*100//total))
         if digest.hexdigest()!=checksum[0]:raise UpdateError('설치 파일 검증에 실패했습니다.')
         part.replace(target)
     finally:

@@ -96,16 +96,7 @@ def check_on_start(root):
 def check_for_setup(root,folder,current,status):
     status.set(f'현재 {current} · 최신 버전 확인 중…')
     messages=queue.Queue()
-    def apply_on_exit(event):
-        installer=getattr(root,'_prepared_setup',None)
-        if event.widget is not root or installer is None:return
-        # NSIS requires /D last and unquoted, including when the path contains spaces.
-        command=subprocess.list2cmdline([str(installer),'/S',f'/WAITPID={os.getpid()}'])
-        try:
-            subprocess.Popen(command+' /D='+str(folder),executable=str(installer),cwd=folder)
-        except OSError as exc:
-            print(f'Could not start installer: {exc}',file=sys.stderr)
-    root.bind('<Destroy>',apply_on_exit,add='+')
+    dialog=None
 
     def worker():
         try:
@@ -116,26 +107,77 @@ def check_for_setup(root,folder,current,status):
             if setup is None:
                 messages.put(('latest',None));return
             messages.put(('downloading',setup[0]))
-            messages.put(('prepared',(setup[0],download_setup(folder,setup))))
+            installer=download_setup(folder,setup,lambda percent:messages.put(('progress',percent)))
+            messages.put(('prepared',(setup[0],installer)))
         except (OSError,ValueError,TypeError,KeyError):
             messages.put(('error',None))
 
+    def open_workflows():
+        workspace=getattr(getattr(root,'_launcher',None),'workspace',None)
+        return bool(getattr(workspace,'tabs',{})) or any(
+            isinstance(child,tk.Toplevel) and child is not dialog and child.winfo_exists()
+            for child in root.winfo_children()
+        )
+
+    def install(installer, *, automatic=False):
+        if not dialog.winfo_exists():return
+        if open_workflows():
+            if automatic:return
+            if not tk.messagebox.askyesno('업데이트 후 재시작','열려 있는 작업이 있습니다. 작업을 저장하셨다면 지금 재시작할까요?',parent=dialog):return
+        # NSIS requires /D last and unquoted, including when the path contains spaces.
+        command=subprocess.list2cmdline([str(installer),'/AUTORESTART=1',f'/WAITPID={os.getpid()}'])
+        try:
+            subprocess.Popen(command+' /D='+str(folder),executable=str(installer),cwd=folder)
+        except OSError as exc:
+            print(f'Could not start installer: {exc}',file=sys.stderr)
+            notice.set('설치 프로그램을 시작하지 못했습니다. 다시 시도해 주세요.')
+            return
+        root.destroy()
+
+    def show_progress(version):
+        nonlocal dialog,notice,progress,restart
+        dialog=tk.Toplevel(root);dialog.title('Work Space 업데이트');dialog.transient(root)
+        from app import center_window
+        from ui_theme import dark_titlebar
+        center_window(dialog,430,158);dark_titlebar(dialog)
+        body=tk.ttk.Frame(dialog,padding=16);body.pack(fill='both',expand=True)
+        notice=tk.StringVar(value=f'새 버전 {version} 다운로드 중…')
+        tk.ttk.Label(body,textvariable=notice).pack(fill='x')
+        progress=tk.ttk.Progressbar(body);progress.start();progress.pack(fill='x',pady=10)
+        buttons=tk.ttk.Frame(body);buttons.pack(fill='x')
+        restart=tk.ttk.Button(buttons,text='업데이트 후 재시작',state='disabled')
+        restart.pack(side='right')
+        tk.ttk.Button(buttons,text='나중에',command=dialog.destroy).pack(side='right',padx=(0,8))
+
+    notice=progress=restart=None
     def poll():
         try:
-            kind,value=messages.get_nowait()
+            while True:
+                kind,value=messages.get_nowait()
+                if kind=='downloading':
+                    status.set(f'새 버전 {value} · 다운로드 및 검증 중…')
+                    show_progress(value)
+                elif kind=='progress':
+                    if dialog.winfo_exists():
+                        progress._q.setRange(0,100);progress._q.setValue(value)
+                elif kind=='prepared':
+                    version,installer=value
+                    status.set(f'새 버전 {version} · 설치 준비 완료')
+                    if dialog.winfo_exists():
+                        progress.stop()
+                        notice.set('다운로드 확인 완료 · 재시작하면 업데이트가 적용됩니다.')
+                        restart.configure(state='normal',command=lambda:install(installer))
+                        dialog.after(2000,lambda:install(installer,automatic=True))
+                    return
+                elif kind=='latest':
+                    status.set(f'현재 {current} · 최신 버전입니다.');return
+                else:
+                    status.set(f'현재 {current} · 업데이트 확인 또는 다운로드 불가')
+                    if dialog is not None and dialog.winfo_exists():
+                        progress.pack_forget();notice.set('다운로드에 실패했습니다. 다음 실행 때 다시 확인합니다.')
+                    return
         except queue.Empty:
             root.after(150,poll)
-            return
-        if kind=='downloading':
-            status.set(f'새 버전 {value} · 다운로드 및 검증 중…')
-            root.after(150,poll)
-        elif kind=='prepared':
-            version,root._prepared_setup=value
-            status.set(f'새 버전 {version} · 프로그램 종료 시 자동 설치')
-        elif kind=='latest':
-            status.set(f'현재 {current} · 최신 버전입니다.')
-        else:
-            status.set(f'현재 {current} · 업데이트 확인 또는 다운로드 불가')
 
     threading.Thread(target=worker,daemon=True).start()
     root.after(150,poll)

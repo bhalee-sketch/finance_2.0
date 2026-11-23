@@ -15,11 +15,16 @@ SetCompressor /SOLID lzma
 SetCompressorDictSize 16
 ShowInstDetails show
 
+Var AutoRestart
+Var InstallMutex
+
 !define MUI_ICON "..\assets\workspace.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\WorkSpace.exe"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipUpdatePage
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipUpdatePage
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -36,7 +41,9 @@ Function .onInit
   StrCmp $1 0 blocked
   StrCmp $2 183 blocked
 
+  StrCpy $InstallMutex $1
   ${GetParameters} $0
+  ${GetOptions} $0 "/AUTORESTART=" $AutoRestart
   ClearErrors
   ${GetOptions} $0 "/WAITPID=" $0
   IfErrors check_running
@@ -58,7 +65,25 @@ Function .onInit
   done:
 FunctionEnd
 
+Function SkipUpdatePage
+  StrCmp $AutoRestart "1" 0 +2
+  Abort
+FunctionEnd
+
+Function .onInstSuccess
+  StrCmp $AutoRestart "1" 0 done
+  System::Call 'kernel32::CloseHandle(p $InstallMutex)'
+  ClearErrors
+  Exec '"$INSTDIR\WorkSpace.exe"'
+  IfErrors 0 done
+  SetErrorLevel 1
+  MessageBox MB_ICONEXCLAMATION "설치는 완료됐습니다. 바탕화면에서 Work Space를 다시 실행해 주세요."
+  done:
+FunctionEnd
+
 Section "Work Space"
+  StrCmp $AutoRestart "1" 0 +2
+  SetAutoClose true
   SetRegView 64
   SetShellVarContext current
   SetOutPath "$INSTDIR\versions\${VERSION}"
