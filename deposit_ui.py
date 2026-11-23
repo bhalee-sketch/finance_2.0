@@ -235,13 +235,15 @@ def open_deposit(parent, desktop, center, open_file):
     ttk.Label(left,text='계좌명·코드 입력 후 Enter · 중복은 오른쪽 화살표로 선택',style='Muted.TLabel').pack(anchor='w',pady=3)
     gross=tk.StringVar();corp=tk.StringVar();local=tk.StringVar()
     grid=ttk.Frame(left);grid.pack(fill='x',pady=10)
-    for c,(label,var) in enumerate([('세전이자',gross),('법인세',corp),('지방소득세',local),('처리예정일 (YYYY-MM-DD)',processing)]):
-        column=c%2;row=(c//2)*2
+    for column,(label,var) in enumerate([('세전이자',gross),('법인세',corp),('지방소득세',local),('처리예정일',processing)]):
+        is_date=var is processing
         grid.columnconfigure(column,weight=1)
-        ttk.Label(grid,text=label).grid(row=row,column=column,sticky='w',padx=4)
-        input_box=ttk.Entry(grid,textvariable=var,width=16);input_box._q.setAccessibleName(label)
-        input_box.grid(row=row+1,column=column,sticky='ew',padx=4,pady=(3,10))
-        if var is not processing:input_box._q.setAlignment(tk.C.Qt.AlignmentFlag.AlignRight)
+        ttk.Label(grid,text=label).grid(row=0,column=column,sticky='w',padx=4)
+        input_box=ttk.Entry(grid,textvariable=var,width=12 if is_date else 9)
+        input_box._q.setAccessibleName('처리예정일 (YYYY-MM-DD)' if is_date else label)
+        if is_date:input_box._q.setPlaceholderText('YYYY-MM-DD')
+        else:input_box._q.setAlignment(tk.C.Qt.AlignmentFlag.AlignRight)
+        input_box.grid(row=1,column=column,sticky='ew',padx=4,pady=(3,0))
     ttk.Label(right,textvariable=summary,style='Accent.TLabel').pack(anchor='w',pady=(0,10))
     table=ttk.Frame(right);table.pack(fill='both',expand=True)
     tree=NumericTreeview(table,columns=('account','principal','net','date'),show='headings',height=9,selectmode='browse')
@@ -315,8 +317,8 @@ def open_deposit(parent, desktop, center, open_file):
         tree.delete(*selected)
         status.set('선택 항목을 삭제하고 해지 목록을 자동 저장했습니다.')
     buttons=ttk.Frame(left);buttons.pack(fill='x',pady=6)
-    ttk.Button(buttons,text='목록에 추가  →',command=add,style='Primary.TButton').pack(side='left',fill='x',expand=True)
-    ttk.Button(buttons,text='선택 항목 수정',command=lambda:add(True)).pack(side='right',padx=(8,0))
+    ttk.Button(buttons,text='목록에 추가  →',command=add,style='Primary.TButton').pack(side='left')
+    ttk.Button(buttons,text='선택 항목 수정',command=lambda:add(True)).pack(side='left',padx=(8,0))
     list_scroll=ttk.Scrollbar(table,orient='vertical',command=tree.yview)
     tree.configure(yscrollcommand=list_scroll.set)
     list_scroll.pack(side='right',fill='y');tree.pack(side='left',fill='both',expand=True)

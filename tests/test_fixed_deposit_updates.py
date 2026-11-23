@@ -69,6 +69,11 @@ class FixedUpdateTests(unittest.TestCase):
                 processing=next(w for w in window._q.findChildren(q.W.QLineEdit)
                                 if w.accessibleName()=='처리예정일 (YYYY-MM-DD)')
                 self.assertTrue(processing.text().startswith('1999-'))
+                amount_fields={entry.accessibleName():entry for entry in window._q.findChildren(q.W.QLineEdit)
+                               if entry.accessibleName() in ('세전이자','법인세','지방소득세')}
+                ordered=[amount_fields[name] for name in ('세전이자','법인세','지방소득세')]+[processing]
+                self.assertEqual(len({entry.y() for entry in ordered}),1)
+                self.assertEqual([entry.x() for entry in ordered],sorted(entry.x() for entry in ordered))
                 view=window._q.findChild(q.W.QTableView)
                 from check_list import CenteredCheckDelegate
                 self.assertIsInstance(view.itemDelegateForColumn(0),CenteredCheckDelegate)
