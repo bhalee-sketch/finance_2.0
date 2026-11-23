@@ -1,5 +1,6 @@
 """정기예금 해지계획표: 계좌정보 조회 및 사용자 입력 금액으로 생성."""
 from result_paths import result_path
+import json
 from copy import copy
 from datetime import date, datetime
 from decimal import Decimal
@@ -84,6 +85,28 @@ def plan_entry(fixed, regular, fixed_key, destination, interest_destination, int
     gross,corp,local=values
     if min(values)<0 or corp+local>gross:raise ValueError('금액은 음수일 수 없으며 세금 합계가 세전이자를 넘을 수 없습니다.')
     return dict(fixed=fixed[fixed_key].copy(),destination=regular[destination].copy(),interest_destination=regular[interest_destination].copy() if interest_destination and interest_destination!=destination else None,gross=gross,corp=corp,local=local,date=d)
+
+
+def load_drafts(path):
+    try:
+        state=json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None,{}
+    last=period(*state['period'])
+    if not isinstance(state['drafts'],dict):raise ValueError('저장된 해지 목록 형식이 올바르지 않습니다.')
+    for entries in state['drafts'].values():
+        for entry in entries:
+            entry['date']=date.fromisoformat(entry['date'])
+            entry['fixed']['principal']=number(entry['fixed']['principal'])
+            for key in ('gross','corp','local'):entry[key]=number(entry[key])
+    return last,state['drafts']
+
+
+def save_drafts(path,period_value,drafts):
+    from release_update import atomic_json
+    # Serialize exact Decimal amounts and ISO dates, including account snapshots.
+    state=json.loads(json.dumps({'period':period_value,'drafts':drafts},default=str))
+    atomic_json(path,state)
 
 
 def save_plan(root,year,month,entries):

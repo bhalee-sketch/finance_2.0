@@ -134,4 +134,51 @@ class FixedUpdateTests(unittest.TestCase):
                 self.assertEqual(len(choices('원금 이체 계좌')),1)
         finally:root.destroy()
 
+    def test_draft_reopens_in_last_worked_month_and_persists_deletion(self):
+        root=q.Tk()
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                def open_window():
+                    open_deposit(root,lambda:Path(folder),lambda w,x,y:w.geometry(f'{x}x{y}'),lambda *a:None)
+                    window=next(w for w in root.winfo_children() if isinstance(w,q.Toplevel))
+                    end=time.monotonic()+5
+                    while time.monotonic()<end:
+                        q.application().processEvents()
+                        if any('정기 75개' in w.text() for w in window._q.findChildren(q.W.QLabel)):break
+                        time.sleep(.01)
+                    else:self.fail('Catalog load timed out')
+                    combo={w.accessibleName():w for w in window._q.findChildren(q.W.QComboBox)}
+                    table=window._q.findChild(q.W.QTableView).model().sourceModel().owner
+                    buttons={w.text().strip():w for w in window._q.findChildren(q.W.QPushButton)}
+                    return window,combo,table,buttons
+
+                window,combo,table,buttons=open_window()
+                combo['연도'].setEditText('2026');combo['월'].setCurrentText('12')
+                for name in ('출금할 정기예금 계좌','원금 이체 계좌'):
+                    combo[name].setEditText(combo[name].itemText(0))
+                for edit in window._q.findChildren(q.W.QLineEdit):
+                    if edit.accessibleName() in ('세전이자','법인세','지방소득세'):
+                        edit.setText('1000' if edit.accessibleName()=='세전이자' else '0')
+                buttons['목록에 추가  →'].click()
+                self.assertEqual(len(table.get_children()),1)
+                window.destroy()
+
+                window,combo,table,buttons=open_window()
+                self.assertEqual(combo['월'].currentText(),'12')
+                self.assertEqual(table.item('1','values')[2:],[ '1,000','2026-12-01'])
+                combo['월'].setCurrentText('11')
+                self.assertEqual(table.get_children(),())
+                combo['월'].setCurrentText('12')
+                rect=table._q.visualRect(table._q.model().index(0,0))
+                table.event_generate('<Button-1>',x=rect.center().x(),y=rect.center().y())
+                buttons['체크 항목 삭제'].click()
+                self.assertEqual(table.get_children(),())
+                window.destroy()
+
+                window,combo,table,_=open_window()
+                self.assertEqual(combo['월'].currentText(),'12')
+                self.assertEqual(table.get_children(),())
+                window.destroy()
+        finally:root.destroy()
+
 if __name__=='__main__':unittest.main()

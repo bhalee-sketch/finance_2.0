@@ -7,7 +7,7 @@ import sqlite3
 from numeric_tree import NumericTreeview
 import qt_ui as tk
 from qt_ui import ttk, filedialog, messagebox
-from deposit_plan import find_catalog, read_catalog, plan_entry, save_plan, period
+from deposit_plan import find_catalog, read_catalog, plan_entry, save_plan, period, load_drafts, save_drafts
 from account_verifier import account_key
 from ui_theme import dark_titlebar
 from verifier import number
@@ -31,8 +31,14 @@ def open_deposit(parent, desktop, center, open_file):
     fixed_database=folder/'fixed_accounts.sqlite3'
     regular_database=folder/'regular_accounts.sqlite3'
     today=date.today()
-    year=tk.StringVar(value=str(today.year));month=tk.StringVar(value=str(today.month))
-    processing=tk.StringVar(value=today.isoformat())
+    draft_path=folder/'drafts.json'
+    draft_error=None
+    try:last_period,drafts=load_drafts(draft_path)
+    except (OSError,ValueError,TypeError,KeyError) as exc:
+        draft_error=exc;last_period=None;drafts={}
+    y,m=last_period or (today.year,today.month)
+    year=tk.StringVar(value=str(y));month=tk.StringVar(value=str(m))
+    processing=tk.StringVar(value=f'{y}-{m:02}-01' if last_period else today.isoformat())
     line=ttk.Frame(frame);line.pack(fill='x',pady=(0,10))
     ttk.Label(line,text='연도').pack(side='left')
     year_box=ttk.Combobox(line,textvariable=year,values=list(range(today.year+5,today.year-11,-1)),width=6)
@@ -45,10 +51,6 @@ def open_deposit(parent, desktop, center, open_file):
     month_box=ttk.Combobox(line,textvariable=month,values=list(range(1,13)),width=4,state='readonly')
     month_box._q.setAccessibleName('월')
     month_box.pack(side='left',padx=8)
-    def default_date(*_):
-        try:y,m=period(year.get(),month.get());processing.set(f'{y}-{m:02}-01')
-        except ValueError:pass
-    year.trace_add('write',default_date);month.trace_add('write',default_date)
     # Reserve the footer before laying out the expanding account panes.
     footer.pack(side='bottom',fill='x',pady=(8,0))
     body.pack(fill='both',expand=True)
@@ -96,6 +98,8 @@ def open_deposit(parent, desktop, center, open_file):
             refresh_options()
             status.set('계좌와 금액을 입력하고 목록에 추가하세요.' if not notes
                        else '계좌 추가에서 누락된 계좌 목록을 등록하세요.')
+            if entries:status.set(f'저장된 해지 목록 {len(entries)}건을 불러왔습니다.')
+            if draft_error:status.set('저장된 해지 목록을 읽을 수 없습니다.')
             if notes:messagebox.showwarning('계좌정보 확인','\n'.join(notes),parent=window)
         reader.run(work,done,failed)
 
@@ -243,6 +247,33 @@ def open_deposit(parent, desktop, center, open_file):
     tree=NumericTreeview(table,columns=('account','principal','net','date'),show='headings',height=9,selectmode='browse')
     for col,label,width in [('account','출금계좌',160),('principal','원금',115),('net','세후이자',105),('date','처리일',100)]:
         tree.heading(col,text=label);tree.column(col,width=width,minwidth=75,anchor='e' if col in ('principal','net') else 'w')
+    def row_values(entry):
+        return (entry['fixed']['account'],f"{entry['fixed']['principal']:,.0f}",
+                f"{entry['gross']-entry['corp']-entry['local']:,.0f}",entry['date'].isoformat())
+
+    def save_entries(updated):
+        nonlocal drafts,entries
+        if draft_error:raise ValueError(f'저장된 작업 내역을 읽을 수 없습니다. {draft_error}')
+        y,m=period(year.get(),month.get())
+        snapshot={**drafts,f'{y}-{m:02}':list(updated.values())}
+        save_drafts(draft_path,(y,m),snapshot)
+        drafts=snapshot;entries=updated
+        summary.set(f'해지 목록 · {len(entries)}건')
+
+    def show_draft(reset_input=False):
+        nonlocal entries,counter
+        try:y,m=period(year.get(),month.get())
+        except ValueError:return
+        if reset_input:
+            processing.set(f'{y}-{m:02}-01')
+            for field in (gross,corp,local):field.set('')
+        tree.delete(*tree.get_children())
+        records=drafts.get(f'{y}-{m:02}',[])
+        entries={str(i):entry for i,entry in enumerate(records,1)}
+        counter=len(entries)
+        for iid,entry in entries.items():tree.insert('','end',iid=iid,values=row_values(entry))
+        summary.set(f'해지 목록 · {len(entries)}건')
+
     def add(update=False):
         nonlocal counter
         try:
@@ -253,28 +284,36 @@ def open_deposit(parent, desktop, center, open_file):
             if any(account_key(e['fixed']['account'])==key and iid!=replace for iid,e in entries.items()):raise ValueError('이미 등록된 정기예금 계좌입니다.')
             if replace:iid=replace
             else:counter+=1;iid=str(counter)
-            entries[iid]=entry
-            values=(entry['fixed']['account'],f"{entry['fixed']['principal']:,.0f}",f"{entry['gross']-entry['corp']-entry['local']:,.0f}",entry['date'].isoformat())
+            save_entries({**entries,iid:entry})
+            values=row_values(entry)
             if replace:tree.item(iid,values=values)
             else:tree.insert('', 'end',iid=iid,values=values)
             summary.set(f'해지 목록 · {len(entries)}건')
-            status.set('수정할 항목은 오른쪽 목록에서 선택하세요.')
-        except (ValueError,KeyError) as e:messagebox.showwarning('입력 확인',str(e),parent=window)
+            status.set('해지 목록을 자동 저장했습니다.')
+        except (OSError,ValueError,KeyError) as e:messagebox.showwarning('입력 확인',str(e),parent=window)
     def select_entry(_):
         sel=tree.selection()
         if not sel:return
-        e=entries[sel[0]]
-        fvalue.set(next(k for k,v in foptions.items() if v==account_key(e['fixed']['account'])))
-        dest.set(next(k for k,v in roptions.items() if v==account_key(e['destination']['account'])))
-        other.set(next(k for k,v in roptions.items() if v==account_key(e['interest_destination']['account'])) if e['interest_destination'] else '원금과 같은 계좌')
+        e=entries.get(sel[0])
+        if not e:return
+        def display_account(options,account):
+            key=account_key(account['account'])
+            return next((label for label,value in options.items() if value==key),account['account'])
+        fvalue.set(display_account(foptions,e['fixed']))
+        dest.set(display_account(roptions,e['destination']))
+        other.set(display_account(roptions,e['interest_destination']) if e['interest_destination'] else '원금과 같은 계좌')
         gross.set(str(e['gross']));corp.set(str(e['corp']));local.set(str(e['local']));processing.set(e['date'].isoformat());show_principal()
     tree.bind('<<TreeviewSelect>>',select_entry)
     from check_list import tree_checks
     checked_entries=tree_checks(tree,centered=True)
     def delete():
-        for iid in checked_entries():tree.delete(iid);entries.pop(iid,None)
-        summary.set(f'해지 목록 · {len(entries)}건')
-        status.set('선택 항목을 삭제했습니다.')
+        selected=set(checked_entries())
+        if not selected:return
+        try:save_entries({iid:entry for iid,entry in entries.items() if iid not in selected})
+        except (OSError,ValueError) as exc:
+            messagebox.showerror('해지 목록 저장 실패',str(exc),parent=window);return
+        tree.delete(*selected)
+        status.set('선택 항목을 삭제하고 해지 목록을 자동 저장했습니다.')
     buttons=ttk.Frame(left);buttons.pack(fill='x',pady=6)
     ttk.Button(buttons,text='목록에 추가  →',command=add,style='Primary.TButton').pack(side='left',fill='x',expand=True)
     ttk.Button(buttons,text='선택 항목 수정',command=lambda:add(True)).pack(side='right',padx=(8,0))
@@ -296,4 +335,7 @@ def open_deposit(parent, desktop, center, open_file):
         def failed(error):
             status.set('계획표 생성 실패');messagebox.showerror('계획표 생성 실패',str(error),parent=window)
         reader.run(lambda:save_plan(*snapshot),done,failed)
+    show_draft()
+    year.trace_add('write',lambda *_:show_draft(reset_input=True))
+    month.trace_add('write',lambda *_:show_draft(reset_input=True))
     window.after(100,load)
