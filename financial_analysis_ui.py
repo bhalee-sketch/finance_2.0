@@ -42,27 +42,21 @@ def open_financial_analysis(parent,desktop,center,open_file):
     toolbar=ttk.Frame(body);toolbar.pack(fill='x',pady=(0,10))
     ttk.Label(toolbar,text='▥  대학 재무분석 시스템   |   재무분석',style='Section.TLabel').pack(side='left')
     actions=ttk.Frame(toolbar);actions.pack(side='right')
-    top=ttk.Frame(body);top.pack(fill='x',pady=(0,6));controls={};radio_groups={};radio_values={}
-    year_group=ttk.LabelFrame(top,text='회계연도',padding=3);year_group.pack(side='left',anchor='n',padx=(0,7))
-    year_box=ttk.Combobox(year_group,textvariable=selected,state='readonly',width=8);year_box.pack();controls['회계연도']=year_box;jobs.controls.append(year_box)
-    radio_vars={'재무제표':statement,'회계구분':scope,'단위':unit,'범위':section}
-    for title in radio_vars:
-        group=ttk.LabelFrame(top,text=title,padding=3);group.pack(side='left',anchor='n',padx=(0,7));radio_groups[title]=group
-    def radios(title,values):
-        if radio_values.get(title)==list(values):return
-        radio_values[title]=list(values)
-        group=radio_groups[title]
-        for child in group.winfo_children():
-            if child in jobs.controls:jobs.controls.remove(child)
-            child.destroy()
-        for i,value in enumerate(values):
-            button=ttk.Radiobutton(group,text=unit_label(value) if title=='단위' else value,
-                variable=radio_vars[title],value=value,command=lambda k=title:changed(k),style='Statement.TRadiobutton')
-            button.grid(row=i%4,column=i//4,sticky='w');jobs.controls.append(button)
-    pathbar=ttk.Frame(top);pathbar.pack(side='left',anchor='n')
-    for title,var in filters.items():
-        cell=ttk.Frame(pathbar);cell.pack(side='left',padx=(0,5));ttk.Label(cell,text=title).pack(anchor='w')
-        box=ttk.Combobox(cell,textvariable=var,state='readonly',width=9);box.pack();controls[title]=box;jobs.controls.append(box)
+    from responsive_ui import wrapping_row
+    top=wrapping_row(body);top.pack(fill='x',pady=(0,6));controls={}
+    unit_choice=tk.StringVar(value=unit_label(unit.get()))
+    selections={'회계연도':selected,'재무제표':statement,'회계구분':scope,
+                '단위':unit_choice,'범위':section,**filters}
+    for title,var in selections.items():
+        group=ttk.LabelFrame(top,text=title,padding=3);group.pack(side='left')
+        box=ttk.Combobox(group,textvariable=var,state='readonly',width=9)
+        box._q.setAccessibleName(title)
+        box.pack(fill='x');controls[title]=box;jobs.controls.append(box)
+    year_box=controls['회계연도']
+    compact_combo(controls['재무제표'],['자금계산서','재무상태표','운영계산서'])
+    compact_combo(controls['회계구분'],SCOPES)
+    compact_combo(controls['단위'],['전체'])
+    compact_combo(controls['범위'],['수입','지출'])
     denominator_note=tk.StringVar(value='기본 분모: 교비 + 대학원 등록금수입')
     cards=ttk.Frame(body);cards.pack(fill='x',pady=(3,10));kpi_values=[]
     for i,(title,color) in enumerate([('선택 기준 금액','#E7F0FC'),('전년 대비 증감액','#6CE2C9'),('전년 대비 증감률','#70DDEA'),('선택 수입 분모 대비','#C1B5F5'),('표시 과목 구성비','#9EC4FC')]):
@@ -92,7 +86,9 @@ def open_financial_analysis(parent,desktop,center,open_file):
     current_frame=ttk.LabelFrame(quadrants,text='',padding=8,style='Dashboard.TLabelframe');current_frame.grid(row=0,column=1,sticky='nsew',pady=(0,5))
     line_panel=ttk.LabelFrame(trend_grid,text='',padding=8,style='Dashboard.TLabelframe');line_panel.grid(row=0,column=0,sticky='nsew',padx=(0,5))
     annual_frame=ttk.Frame(body)  # 금액 표 데이터 유지; 화면에는 팝업으로만 표시
-    current_frame.grid_propagate(False);current_frame.pack_propagate(False);pie_panel.pack_propagate(False)
+    # Keep the chart's size hint from pushing the table outside the canvas.
+    for panel in (pie_panel,current_frame):
+        panel._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Preferred)
     panel_fit_job=None
     applied_panel_width=None
 
@@ -108,7 +104,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
         available=composition_view.winfo_height()
         widths=getattr(analysis_tree,'_analysis_widths',())
         table_width=sum(widths)+48 if widths else 440
-        panel_width=max(table_width,ledgerbar.winfo_reqwidth()+24)
+        panel_width=min(max(table_width,ledgerbar.winfo_reqwidth()+24),max(1,width-6))
         if applied_panel_width!=panel_width:
             applied_panel_width=panel_width
             quadrants.columnconfigure(1,minsize=panel_width)
@@ -171,11 +167,12 @@ def open_financial_analysis(parent,desktop,center,open_file):
         if not history:return
         ranges=['자산','부채와기본금'] if statement.get()=='재무상태표' else ['수입','지출']
         if section.get() not in ranges:section.set(ranges[0])
-        radios('범위',ranges)
+        compact_combo(controls['범위'],ranges)
         data=statement_view(history[selected.get()],statement.get())
         units=available_units(data,scope.get())
         if unit.get() not in units:unit.set('합계')
-        radios('단위',units)
+        unit_choice.set(unit_label(unit.get()))
+        compact_combo(controls['단위'],list(map(unit_label,units)) or ['전체'])
         parsed=data['datasets'].get((scope.get(),unit.get()),{})
         keys=list(filters)
         if changed in keys:
@@ -322,7 +319,9 @@ def open_financial_analysis(parent,desktop,center,open_file):
         topic_refresh()
         status.set(' / '.join(issues+current['issues']) or '원 단위 · 확정결산 · 전체는 내부거래 제거 후 금액 · 결측치는 공란')
         graphs()
-    def changed(key):expanded.clear();options(key);render()
+    def changed(key):
+        if key=='단위':unit.set('합계' if unit_choice.get()=='전체' else unit_choice.get())
+        expanded.clear();options(key);render()
     for key,box in controls.items():box.bind('<<ComboboxSelected>>',lambda e,k=key:changed(k))
 
     def refresh():
@@ -370,7 +369,6 @@ def open_financial_analysis(parent,desktop,center,open_file):
     for container,title,command in [(actions,'새로고침',refresh),(actions,'Excel 저장',export),(expansionbar,'선택 과목 원장 조회',ledger),(series_bar,'비교 과목 선택',choose_series),(series_bar,'연도별 금액',annual_popup)]:
         button=ttk.Button(container,text=title,command=command);button.pack(side='left',padx=4,pady=3);jobs.controls.append(button)
     analysis_tree.bind('<Double-1>',lambda e:ledger())
-    radios('재무제표',['자금계산서','재무상태표','운영계산서']);radios('회계구분',SCOPES);radios('단위',['합계']);radios('범위',['수입','지출'])
     from topic_ui import install_topics
     topic_refresh=install_topics(notebook,window,jobs,lambda:(history,selected.get(),scope.get(),unit.get(),preset,current_path()),display_table,open_file)
     def tab_changed(event=None):

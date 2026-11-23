@@ -62,6 +62,14 @@ def import_fixed_accounts(source,database=DATABASE):
     source,database=Path(source),Path(database)
     accounts,excluded=normalize_source(source)
     digest=hashlib.sha256(source.read_bytes()).hexdigest()
+    return store_fixed_accounts(database,accounts,source.name,digest,excluded)
+
+
+def store_fixed_accounts(database,accounts,filename,digest=None,excluded=None):
+    # Manual additions are snapshots too, so imports can still replace the active list.
+    if digest is None:
+        digest=hashlib.sha256(json.dumps(accounts,ensure_ascii=False,sort_keys=True,default=str).encode()).hexdigest()
+    excluded=excluded or {}
     database.parent.mkdir(parents=True,exist_ok=True)
     with sqlite3.connect(database) as connection:
         connection.execute('PRAGMA foreign_keys=ON')
@@ -77,15 +85,17 @@ def import_fixed_accounts(source,database=DATABASE):
         if existing:import_id=existing[0]
         else:
             import_id=connection.execute('INSERT INTO imports(filename,sha256,imported_at,account_count,excluded_json) VALUES(?,?,?,?,?)',
-                (source.name,digest,datetime.now(timezone.utc).isoformat(),len(accounts),json.dumps(excluded,ensure_ascii=False))).lastrowid
+                (filename,digest,datetime.now(timezone.utc).isoformat(),len(accounts),json.dumps(excluded,ensure_ascii=False))).lastrowid
             connection.executemany('INSERT INTO accounts VALUES(?,?,?,?,?,?,?,?,?)',
                 ((import_id,key,position,item['account'],item['bank'],item['unit'],item['name'],str(item['principal']),item.get('maturity',''))
                  for position,(key,item) in enumerate(accounts.items())))
         connection.execute('INSERT OR REPLACE INTO active VALUES(1,?)',(import_id,))
         if connection.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('정기예금 DB 무결성 오류')
-    stored=load_fixed_accounts(database)
-    for key,item in accounts.items():
-        if any(stored[key].get(field)!=value for field,value in item.items()):raise ValueError('정기예금 DB 대조 오류')
-    return {'source':source.name,'sha256':digest,'accounts':len(accounts),'excluded':excluded,
+        stored={row[0]:row[1:] for row in connection.execute(
+            'SELECT account_key,account,bank,unit,name,principal,maturity FROM accounts WHERE import_id=?',(import_id,))}
+        expected={key:(item['account'],item['bank'],item['unit'],item['name'],str(item['principal']),item.get('maturity',''))
+                  for key,item in accounts.items()}
+        if stored!=expected:raise ValueError('정기예금 DB 대조 오류')
+    return {'source':filename,'sha256':digest,'accounts':len(accounts),'excluded':excluded,
             'principal_total':str(sum((item['principal'] for item in accounts.values()),Decimal(0))),
             'verification':'Normalized account data matches the database'}
