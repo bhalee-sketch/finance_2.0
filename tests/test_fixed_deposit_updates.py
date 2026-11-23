@@ -69,6 +69,16 @@ class FixedUpdateTests(unittest.TestCase):
                 processing=next(w for w in window._q.findChildren(q.W.QLineEdit)
                                 if w.accessibleName()=='처리예정일 (YYYY-MM-DD)')
                 self.assertTrue(processing.text().startswith('1999-'))
+                view=window._q.findChild(q.W.QTableView)
+                from check_list import CenteredCheckDelegate
+                self.assertIsInstance(view.itemDelegateForColumn(0),CenteredCheckDelegate)
+                table=view.model().sourceModel().owner
+                self.assertEqual(table.column('#0','anchor'),'center')
+                self.assertEqual(table.column('principal','anchor'),'e')
+                self.assertEqual(table.column('net','anchor'),'e')
+                for entry in window._q.findChildren(q.W.QLineEdit):
+                    if entry.accessibleName() in ('세전이자','법인세','지방소득세'):
+                        self.assertTrue(entry.alignment() & q.C.Qt.AlignmentFlag.AlignRight)
                 buttons={w.text():w for w in window._q.findChildren(q.W.QPushButton)}
                 self.assertNotIn('계좌 새로고침',buttons)
                 self.assertEqual(sum('계획표 생성' in name for name in buttons),1)

@@ -42,11 +42,35 @@ class CheckList(ttk.Frame):
             if 0<=i<len(self.variables):self.variables[i].set(value)
 
 
-def tree_checks(tree,default=False):
+class CenteredCheckDelegate(tk.W.QStyledItemDelegate):
+    """Draw a native checkbox over the table's regular row background."""
+    def __init__(self,view):
+        super().__init__(view)
+        self.checkbox=tk.W.QCheckBox(view)
+        self.checkbox.hide()
+
+    def paint(self,painter,option,index):
+        cell=tk.W.QStyleOptionViewItem(option)
+        self.initStyleOption(cell,index)
+        checked=cell.text=='☑'
+        cell.text=''
+        option.widget.style().drawControl(tk.W.QStyle.ControlElement.CE_ItemViewItem,cell,painter,option.widget)
+
+        indicator=tk.W.QStyleOptionButton()
+        indicator.initFrom(self.checkbox)
+        indicator.state|=tk.W.QStyle.StateFlag.State_On if checked else tk.W.QStyle.StateFlag.State_Off
+        size=18
+        indicator.rect=tk.C.QRect(0,0,size,size)
+        indicator.rect.moveCenter(option.rect.center())
+        self.checkbox.style().drawPrimitive(tk.W.QStyle.PrimitiveElement.PE_IndicatorCheckBox,indicator,painter,self.checkbox)
+
+
+def tree_checks(tree,default=False,*,centered=False):
     """목록의 체크 열. 행 강조와 별개로 복수 작업 대상을 고른다."""
     chosen=set();original_insert=tree.insert
     tree.configure(show='tree headings',selectmode='browse')
-    tree.heading('#0',text='선택');tree.column('#0',width=48,minwidth=48,stretch=False)
+    tree.heading('#0',text='선택');tree.column('#0',width=48,minwidth=48,stretch=False,anchor='center' if centered else 'w')
+    if centered:tree._q.setItemDelegateForColumn(0,CenteredCheckDelegate(tree._q))
     def insert(*args,**kwargs):
         kwargs['text']='☑' if default else '☐'
         iid=original_insert(*args,**kwargs)

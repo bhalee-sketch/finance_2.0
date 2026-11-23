@@ -237,11 +237,12 @@ def open_deposit(parent, desktop, center, open_file):
         ttk.Label(grid,text=label).grid(row=row,column=column,sticky='w',padx=4)
         input_box=ttk.Entry(grid,textvariable=var,width=16);input_box._q.setAccessibleName(label)
         input_box.grid(row=row+1,column=column,sticky='ew',padx=4,pady=(3,10))
+        if var is not processing:input_box._q.setAlignment(tk.C.Qt.AlignmentFlag.AlignRight)
     ttk.Label(right,textvariable=summary,style='Accent.TLabel').pack(anchor='w',pady=(0,10))
     table=ttk.Frame(right);table.pack(fill='both',expand=True)
     tree=NumericTreeview(table,columns=('account','principal','net','date'),show='headings',height=9,selectmode='browse')
     for col,label,width in [('account','출금계좌',160),('principal','원금',115),('net','세후이자',105),('date','처리일',100)]:
-        tree.heading(col,text=label);tree.column(col,width=width,minwidth=75,anchor='w')
+        tree.heading(col,text=label);tree.column(col,width=width,minwidth=75,anchor='e' if col in ('principal','net') else 'w')
     def add(update=False):
         nonlocal counter
         try:
@@ -269,7 +270,7 @@ def open_deposit(parent, desktop, center, open_file):
         gross.set(str(e['gross']));corp.set(str(e['corp']));local.set(str(e['local']));processing.set(e['date'].isoformat());show_principal()
     tree.bind('<<TreeviewSelect>>',select_entry)
     from check_list import tree_checks
-    checked_entries=tree_checks(tree)
+    checked_entries=tree_checks(tree,centered=True)
     def delete():
         for iid in checked_entries():tree.delete(iid);entries.pop(iid,None)
         summary.set(f'해지 목록 · {len(entries)}건')
