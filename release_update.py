@@ -14,6 +14,8 @@ from pathlib import Path, PurePosixPath
 
 REPOSITORY='bhalee-sketch/financetool'
 API=f'https://api.github.com/repos/{REPOSITORY}'
+SETUP_REPOSITORY='bhalee-sketch/finance_2.0'
+SETUP_API=f'https://api.github.com/repos/{SETUP_REPOSITORY}'
 MAX_ARCHIVE=700*1024*1024
 MAX_EXPANDED=2*1024*1024*1024
 
@@ -69,10 +71,11 @@ class GithubRedirect(urllib.request.HTTPRedirectHandler):
         return redirected
 
 class GithubClient:
-    def __init__(self,token=''):
+    def __init__(self,token='',*,api=API):
+        self.api=api
         self.token=token.strip();self.opener=urllib.request.build_opener(GithubRedirect())
     def open(self,url,asset=False):
-        if not url.startswith(API+'/'):raise UpdateError('다른 저장소의 다운로드는 지원하지 않습니다.')
+        if not url.startswith(self.api+'/'):raise UpdateError('다른 저장소의 다운로드는 지원하지 않습니다.')
         headers={'User-Agent':'WorkSpace-Updater','Accept':'application/octet-stream' if asset else 'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
         if self.token:headers['Authorization']='Bearer '+self.token
         try:return self.opener.open(urllib.request.Request(url,headers=headers),timeout=30)
@@ -115,6 +118,28 @@ class GithubClient:
                 if received>manifest['size']:raise UpdateError('다운로드 크기가 배포 정보와 다릅니다.')
                 output.write(block);digest.update(block);progress(round(received/manifest['size']*100))
         if received!=manifest['size'] or digest.hexdigest()!=manifest['sha256']:raise UpdateError('다운로드 검증에 실패했습니다. 기존 버전은 유지됩니다.')
+
+def latest_setup(current):
+    """Find the newest stable release that has a published Windows Setup asset."""
+    current_key=version_key(current)
+    client=GithubClient(api=SETUP_API)
+    releases=client.json(SETUP_API+'/releases?per_page=30')
+    latest=None
+    best_key=current_key
+    for release in releases:
+        if release.get('draft') or release.get('prerelease'):continue
+        tag=release.get('tag_name','')
+        if not re.fullmatch(r'v[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,9}',tag):continue
+        version=tag[1:]
+        key=version_key(version)
+        if key<=best_key:continue
+        filename=f'WorkSpace-Setup-{version}-x64.exe'
+        assets={asset['name'] for asset in release['assets'] if asset['state']=='uploaded'}
+        if filename in assets and filename+'.sha256' in assets:
+            best_key=key
+            latest=version,f'https://github.com/{SETUP_REPOSITORY}/releases/download/{tag}/{filename}'
+    return latest
+
 
 def extract_release(archive,destination):
     destination=Path(destination);seen=set();total=0

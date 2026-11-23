@@ -58,7 +58,7 @@ def build(version, output):
     (output/'frozen'/'WorkSpace.exe').rename(installer/'WorkSpace.exe')
     (installed/'release.json').write_text(json.dumps({
         'version': version, 'repository': REPOSITORY, 'platform': 'windows-x64',
-        'launcher_protocol': 1, 'update_channel': 'manual',
+        'launcher_protocol': 1, 'update_channel': 'setup',
     }), encoding='utf-8')
     (installer/'current.json').write_text(json.dumps({'current': version}), encoding='utf-8')
     print(installer)

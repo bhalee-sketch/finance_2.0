@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import qt_ui as tk
-from release_update import GithubClient,GithubAccessError,install_root,prepare_release,release_metadata,UpdateError
+from release_update import GithubClient,GithubAccessError,install_root,latest_setup,prepare_release,release_metadata,UpdateError
 from token_store import load_update_token as load_token
 from version_status import version_status
 
@@ -23,11 +23,13 @@ def check_on_start(root):
     if folder is None or not getattr(sys,'frozen',False):
         status.set(f'현재 {current} · 소스 실행');return
     try:
-        manual=release_metadata(Path(sys.executable).parent).get('update_channel')=='manual'
+        channel=release_metadata(Path(sys.executable).parent).get('update_channel')
     except (OSError,ValueError,UpdateError):
-        manual=False
-    if manual:
+        channel=None
+    if channel=='manual':
         status.set(f'현재 {current} · 설치 파일로 업데이트');return
+    if channel=='setup':
+        check_for_setup(root,current,status);return
     if (folder/'pending.json').exists():
         status.set(f'현재 {current} · 업데이트 적용 확인 중')
         waits=getattr(root,'_update_pending_waits',0)+1;root._update_pending_waits=waits
@@ -89,3 +91,31 @@ def check_on_start(root):
     # Allow the stable launcher's readiness handshake to finish before activation.
     root.after(1500,lambda:threading.Thread(target=worker,daemon=True).start())
     root.after(100,poll)
+
+
+def check_for_setup(root,current,status):
+    status.set(f'현재 {current} · 최신 버전 확인 중…')
+    messages=queue.Queue(maxsize=1)
+
+    def worker():
+        try:
+            messages.put(('ready',latest_setup(current)))
+        except (OSError,ValueError,TypeError,KeyError):
+            messages.put(('error',None))
+
+    def poll():
+        try:
+            kind,setup=messages.get_nowait()
+        except queue.Empty:
+            root.after(150,poll)
+            return
+        if kind=='error':
+            status.set(f'현재 {current} · 최신 버전 확인 불가')
+        elif setup:
+            version,root._setup_download_url=setup
+            status.set(f'현재 {current} · 새 버전 {version}')
+        else:
+            status.set(f'현재 {current} · 최신 버전입니다.')
+
+    threading.Thread(target=worker,daemon=True).start()
+    root.after(150,poll)

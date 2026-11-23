@@ -180,8 +180,10 @@ class Launcher:
             settings_icon(button,max(16,round(18*factor)),{'설정':'settings','플로팅':'floating','종료':'close'}[label])
             button.pack(side='right',padx=(3,0));tooltip(button,label)
         footer=ttk.Frame(self.frame);footer.pack(side='bottom',fill='x',pady=(3,0))
-        from version_status import version_status
-        ttk.Label(footer,textvariable=version_status(self.root),style='Muted.TLabel',wraplength=320).pack(side='left',fill='x')
+        from version_status import bind_status_label
+        version=ttk.Label(footer,style='Muted.TLabel',wraplength=320)
+        version.pack(side='left',fill='x')
+        bind_status_label(self.root,version._q)
         if self.compact:
             grip=ttk.Label(footer,text='◢',cursor='size_nw_se' if sys.platform=='win32' else 'bottom_right_corner');grip.pack(side='right')
             grip.bind('<ButtonPress-1>',lambda e:self.start_drag(e,True))

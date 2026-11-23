@@ -3,7 +3,7 @@ name: Windows Setup
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/windows-setup.yml]
+    paths: [.github/workflows/windows-setup.yml, app_version.py]
   workflow_dispatch:
 
 permissions:
@@ -94,5 +94,5 @@ jobs:
           $hash = (Get-FileHash $env:WORKSPACE_SETUP -Algorithm SHA256).Hash.ToLower()
           $checksum = "$env:WORKSPACE_SETUP.sha256"
           "$hash  $(Split-Path $env:WORKSPACE_SETUP -Leaf)" | Set-Content -Encoding ascii $checksum
-          gh release create "v$env:WORKSPACE_VERSION" "$env:WORKSPACE_SETUP" "$checksum" --target $env:GITHUB_SHA --title "Work Space $env:WORKSPACE_VERSION" --notes "Windows x64 Setup. Python 3.12 is bundled. This installer is unsigned. Install future updates by downloading their Setup file."
+          gh release create "v$env:WORKSPACE_VERSION" "$env:WORKSPACE_SETUP" "$checksum" --target $env:GITHUB_SHA --title "Work Space $env:WORKSPACE_VERSION" --notes "Windows x64 Setup. Python 3.12 is bundled. This installer is unsigned. Work Space checks for new versions at startup and links to their Setup download."
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
