@@ -4,7 +4,7 @@ import qt_ui as tk
 from qt_ui import ttk,messagebox
 from statement_ui import Jobs
 from statement_catalog import amount_text
-from analysis_runtime import program_statement_paths
+from analysis_runtime import program_statement_paths,statement_folder
 from statement_loader import load_statement_record_from_path
 from closing_review import review_carryover,review_fund_transfers
 from ui_theme import dark_titlebar
@@ -96,6 +96,7 @@ def open_closing_review(parent,desktop,center):
             status.set(' / '.join(notes) or f"이월금 자료 대사 일치 · 임의기금: 수입 {comparisons[0]['state']}, 지출 {comparisons[1]['state']} · 원본: {path.name}")
         selected=year.get();settings=desktop()/'settings'
         def work():
+            statement_folder(selected)
             record=load_statement_record_from_path(path)
             errors=[]
             try:carry=review_carryover(record)
@@ -114,5 +115,5 @@ def open_closing_review(parent,desktop,center):
             paths=result;box.configure(values=list(paths))
             if year.get() not in paths:year.set(next(iter(paths),''))
             load()
-        jobs.run(program_statement_paths,done)
+        jobs.run(lambda:program_statement_paths(materialize=False),done)
     box.bind('<<ComboboxSelected>>',load);window.after(100,refresh)

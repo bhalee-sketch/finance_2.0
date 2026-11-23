@@ -340,7 +340,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
                 topic_refresh();status.set(' / '.join(issues) or '연도별 재무제표가 없습니다.');return
             if selected.get() not in history:selected.set(next(iter(history)))
             options();render()
-        jobs.run(lambda:load_history(folder),done)
+        jobs.run(lambda:load_history(folder,materialize_sources=False),done)
 
     def ledger():
         chosen=analysis_tree.selection()
@@ -362,7 +362,11 @@ def open_financial_analysis(parent,desktop,center,open_file):
         denom,_,_=denominator(history[selected.get()],preset)
         _,base=analysis_rows(statement_view(history[selected.get()],statement.get()),None,scope.get(),unit.get(),section.get(),current_path(),denom)
         args=(target,list(shown),history[selected.get()]['basis'],list(denom_details),list(trend),list(checks),notes,base,denom,(series_headers,series_rows),statement.get(),source_total_row(statement_view(history[selected.get()],statement.get()),statement_view(history.get(str(int(selected.get())-1),{}),statement.get()),scope.get(),unit.get(),section.get(),statement.get()))
-        jobs.run(lambda:export_report(*args),lambda p:saved(window,status,open_file,p))
+        def work():
+            from analysis_runtime import statement_folder
+            statement_folder()
+            return export_report(*args)
+        jobs.run(work,lambda p:saved(window,status,open_file,p))
     for container,title,command in [(actions,'새로고침',refresh),(actions,'Excel 저장',export),(expansionbar,'선택 과목 원장 조회',ledger),(series_bar,'비교 과목 선택',choose_series),(series_bar,'연도별 금액',annual_popup)]:
         button=ttk.Button(container,text=title,command=command);button.pack(side='left',padx=4,pady=3);jobs.controls.append(button)
     analysis_tree.bind('<Double-1>',lambda e:ledger())

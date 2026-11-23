@@ -8,7 +8,6 @@ from finance_data import money
 
 CATEGORIES=['교육부(기타지원금)','교육부(국가장학금)','기타국고지원','지방자치단체']
 BUNDLED_SUBSIDIES=Path(__file__).resolve().parent/'data'/'govsubsidy'/'statements.json'
-_CACHE={}
 
 def normalized(value):return re.sub(r'\s+','',str(value or ''))
 
@@ -52,27 +51,6 @@ def load_bundled_subsidies():
             details.append([category,project,value,sheet,row])
         history[year]={'amounts':sums,'count':len(details),'details':details,'source':record['source']}
     return history,[]
-
-
-def load_subsidies(folder):
-    folder=Path(folder)
-    if not folder.exists():return {},['국고보조금명세서 폴더를 찾을 수 없습니다.']
-    history={};issues=[];seen={}
-    for path in sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower()=='.xlsx'):
-        if path.name.startswith('~$'):continue
-        years=set(re.findall(r'(?<!\d)(20\d{2})(?!\d)',path.stem))
-        if len(years)!=1:issues.append(f'{path.name}: 파일명의 연도 확인 필요');continue
-        year=years.pop()
-        if year in seen:raise ValueError(f'{year}년 국고보조금 파일이 중복됩니다: {seen[year].name}, {path.name}')
-        seen[year]=path
-        try:
-            stat=path.stat();key=(str(path.resolve()),stat.st_mtime_ns,stat.st_size)
-            if key not in _CACHE:
-                sums,count,details=read_subsidy(path)
-                _CACHE[key]={'amounts':sums,'count':count,'details':details,'source':path}
-            history[year]=_CACHE[key]
-        except (ValueError,OSError) as e:issues.append(str(e))
-    return history,issues
 
 
 def subsidy_series(history):

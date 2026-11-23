@@ -7,8 +7,8 @@ from qt_ui import ttk,messagebox
 from finance_ui import shell,fill,saved,target_file,compact_combo
 from statement_ui import table
 from analysis_runtime import load_audit_sources as load_sources,program_ledger_paths
-from audit_review import (AccountOrder,matches,review_values,review_years,select_reviews,
-                          export_review,AUDIT_HEADERS,CHECK_STATES,AUDIT_VISIBLE_HEADERS,visible_review_values)
+from audit_review import (AccountOrder,review_values,review_years,select_reviews,
+                          export_review,AUDIT_HEADERS,CHECK_STATES,AUDIT_VISIBLE_HEADERS,visible_review_values,normalized)
 from ui_theme import dark_titlebar
 
 
@@ -89,10 +89,13 @@ def open_audit(parent,desktop,center,open_file):
             if key=='회계단위':choices=['전체']+list(dict.fromkeys(r['회계단위'] for r in candidates if r['회계단위'] not in ('','전체')))
             elif key in ('항','목') and filters[keys[index-1]].get()=='전체':choices=['전체']
             else:
-                subset=[r for r in candidates if matches(r,{k:filters[k].get() for k in keys[:index]})]
-                choices=['전체']+order.choices(subset,key)
+                choices=['전체']+order.choices(candidates,key)
             if filters[key].get() not in choices:filters[key].set('전체')
             compact_combo(boxes[key],choices)
+            value=filters[key].get()
+            if index+1<len(keys) and value and value!='전체':
+                target=normalized(value)
+                candidates=[record for record in candidates if normalized(record.get(key,''))==target]
     def show_page():
         visible=selected[page*page_size:(page+1)*page_size]
         fill(tree,AUDIT_VISIBLE_HEADERS,[visible_review_values(x) for x in visible],numeric=(7,8))
@@ -154,7 +157,11 @@ def open_audit(parent,desktop,center,open_file):
             messagebox.showerror('저장 위치','원본과 다른 이름으로 저장하세요.',parent=window);return
         chosen=current_filters()|{'원장 연도':source_year.get(),'표시':'확인 대상만' if only_check.get() else '전체','검색':query.get()}
         snapshot=list(selected);snapshot_data=data
-        jobs.run(lambda:export_review(snapshot_data,snapshot,chosen,path),lambda p:saved(window,status,open_file,p))
+        def work():
+            from analysis_runtime import statement_folder
+            statement_folder()
+            return export_review(snapshot_data,snapshot,chosen,path)
+        jobs.run(work,lambda p:saved(window,status,open_file,p))
     for title,command in [('새로고침',refresh),('확인 결과 Excel 저장',export)]:
         button=ttk.Button(actions,text=title,command=command);button.pack(side='left',padx=4);jobs.controls.append(button)
     window.after(100,refresh)

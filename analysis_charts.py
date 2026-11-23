@@ -83,20 +83,6 @@ def nice_axis(low,high):
     return low,max(high,low+step),step
 
 
-def curve_points(points):
-    """실제 점을 통과하는 단조 보간. 양 끝 값 밖으로 튀는 곡선은 만들지 않는다."""
-    if len(points)<3:return [v for p in points for v in p]
-    slopes=[(b[1]-a[1])/(b[0]-a[0]) for a,b in zip(points,points[1:])]
-    tangent=[slopes[0]]+[0 if a*b<=0 else 2*a*b/(a+b) for a,b in zip(slopes,slopes[1:])]+[slopes[-1]]
-    output=[]
-    for i,(a,b) in enumerate(zip(points,points[1:])):
-        width=b[0]-a[0]
-        for j in range(16):
-            t=j/16;v=(2*t**3-3*t*t+1)*a[1]+(t**3-2*t*t+t)*width*tangent[i]+(-2*t**3+3*t*t)*b[1]+(t**3-t*t)*width*tangent[i+1]
-            output.extend((a[0]+t*width,v))
-    return output+list(points[-1])
-
-
 def draw_curve(canvas,points,color):
     if len(points)>1:canvas.create_line(*[v for point in points for v in point],fill=color,width=2.5,smooth=False,capstyle='round',joinstyle='round')
 
@@ -213,6 +199,10 @@ def segment_hits_box(segment,box):
     return True
 
 
+VALUE_LABEL_OFFSETS=sorted(((dy,dx) for dy in (0,-18,18,-36,36,-54,54) for dx in (0,12,-12,24,-24,36,-36,48,-48,60,-60)),
+                           key=lambda pair:pair[0]**2+pair[1]**2*.7+(180 if pair[0]>0 else 0))
+
+
 def value_labels(canvas,labels,left,top,right,bottom,segments=(),*,skip_overlaps=False):
     """모든 선을 그린 후 숫자를 최상단에 배치하고 인접 라벨 겹침을 피한다."""
     occupied=[]
@@ -226,9 +216,7 @@ def value_labels(canvas,labels,left,top,right,bottom,segments=(),*,skip_overlaps
         x=max(left+half+10,min(right-half-6,x));chosen=None
         # Prefer labels above their own point. Use horizontal staggering before
         # falling back below, and keep all backgrounds clear of the y axis.
-        candidates=sorted(((dy,dx) for dy in (0,-18,18,-36,36,-54,54) for dx in (0,12,-12,24,-24,36,-36,48,-48,60,-60)),
-                          key=lambda pair:pair[0]**2+pair[1]**2*.7+(180 if pair[0]>0 else 0))
-        for offset,dx in candidates:
+        for offset,dx in VALUE_LABEL_OFFSETS:
             cy=max(top+hh+3,min(bottom-hh,y+offset))
             cx=max(left+half+10,min(right-half-6,x+dx));candidate=(cx-half,cy-hh,cx+half,cy+hh)
             if all(candidate[2]<b[0] or candidate[0]>b[2] or candidate[3]<b[1] or candidate[1]>b[3] for b in occupied) and not any(segment_hits_box(seg,candidate) for seg in segments):

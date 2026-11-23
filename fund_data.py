@@ -8,7 +8,6 @@ from finance_data import money
 
 HEADERS=['구분','내용','전기이월','당기증가','당기감소','기말잔액']
 BUNDLED_FUNDS=Path(__file__).resolve().parent/'data'/'fund'/'statements.json'
-_CACHE={}
 
 def norm(value):return re.sub(r'\s+','',str(value or ''))
 
@@ -53,24 +52,6 @@ def load_bundled_funds():
         history[year]={'amounts':amounts,'details':details,'source':record['source'],'notes':record['notes']}
         notes.extend(record['notes'])
     return history,notes
-
-
-def load_funds(folder):
-    folder=Path(folder);history={};issues=[];seen={}
-    if not folder.exists():return {},['기금 원본 폴더를 찾을 수 없습니다.']
-    for path in sorted(folder.iterdir()):
-        if not path.is_file() or path.name.startswith('~$') or path.suffix.lower() not in ('.xlsx','.xlsm'):continue
-        match=re.fullmatch(r'(20\d{2})\s*년\s*기금',path.stem)
-        if not match:continue
-        year=match[1]
-        if year in seen:raise ValueError(f'{year}년 기금 파일이 중복됩니다.')
-        seen[year]=path
-        try:
-            stat=path.stat();key=(str(path.resolve()),stat.st_mtime_ns,stat.st_size)
-            if key not in _CACHE:_CACHE[key]=read_fund(path,year)
-            history[year]=_CACHE[key];issues.extend(history[year]['notes'])
-        except (ValueError,OSError) as exc:issues.append(str(exc))
-    return history,issues
 
 
 def fund_series(history):

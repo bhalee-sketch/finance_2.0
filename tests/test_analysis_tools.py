@@ -45,6 +45,11 @@ class AnalysisToolTests(unittest.TestCase):
         self.assertEqual(result['values']['transfer'],Decimal('1234'))
         self.assertEqual(result['sources']['transfer_file'],str(source))
 
+    def test_database_analysis_matches_excel_values_and_provenance(self):
+        from financial_analysis import load_history
+        self.assertEqual(runtime.load_analysis_history(materialize_sources=False),
+                         load_history(runtime.statement_folder()))
+
     def test_composition_panel_fit_coalesces_resize_events(self):
         from financial_analysis_ui import open_financial_analysis
 

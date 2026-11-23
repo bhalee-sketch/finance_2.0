@@ -68,11 +68,7 @@ def read_source(path, kind):
     data=[list(r)+[None]*max(0,len(labels)-len(r)) for r in rows[header+1:] if any(text(v) for v in r)]
     return labels,data
 
-def expense_accounts(path):
-    _,rows=read_source(path,'expense')
-    return sorted({text(r[21]) for r in rows if text(r[21])})
-
-def classify(kind, headers, rows, mode='교비비등록금', accounts=(), exclude_unpaid=False, account_unit=None, show_all=False):
+def classify(kind, headers, rows, mode='교비비등록금', accounts=(), exclude_unpaid=False, account_unit=None, show_all=False, *, exception_order=None):
     groups={}; stats=Counter(); sums=[]; hidden=set()
     if kind=='expense':
         if not accounts: raise ValueError('처리할 계좌를 하나 이상 선택하세요.')
@@ -97,6 +93,7 @@ def classify(kind, headers, rows, mode='교비비등록금', accounts=(), exclud
             passed=expense_fund_passes(account,fund)
             result='통과' if passed else '확인 필요'
             stats[result]+=1
+            if not passed and exception_order is not None:exception_order.setdefault(account,None)
             if passed and not show_all:continue
             values=[row[i] for i in keep]
             values.insert(result_col,result)
@@ -154,12 +151,29 @@ def append(ws, values):
     for cell in ws[ws.max_row]:
         if isinstance(cell.value,str): cell.data_type='s'
 
-def build_report(path,kind,**options):
-    path=Path(path);headers,rows=read_source(path,kind)
-    out,groups,stats,sums,hidden=classify(kind,headers,rows,**options)
+def prepare_expense_report(path,*,accounts,account_unit):
+    headers,rows=read_source(path,'expense')
+    exceptions={}
+    classified=classify('expense',headers,rows,accounts=accounts,account_unit=account_unit,
+                        show_all=True,exception_order=exceptions)
+    return len(rows),classified,tuple(exceptions)
+
+
+def build_report(path,kind,*,prepared_expense=None,**options):
+    if kind=='expense' and prepared_expense is not None:
+        row_count,classified,exceptions=prepared_expense
+        out,groups,stats,sums,hidden=classified
+        if not options.get('show_all'):
+            column=out.index('재원')+1
+            groups={name:[row for row in groups[name] if row[column]=='확인 필요'] for name in exceptions}
+    else:
+        headers,rows=read_source(path,kind)
+        row_count=len(rows)
+        out,groups,stats,sums,hidden=classify(kind,headers,rows,**options)
+    path=Path(path)
     wb=Workbook();summary=wb.active;summary.title='처리요약'
     note='선택 계좌의 재원이 등록된 규칙에 맞으면 통과로 표시합니다.' if kind=='expense' else '원본 매크로의 분류·집계 결과입니다. 계좌잔액 대사나 재원코드 정오 판정은 수행하지 않습니다.'
-    for row in [('항목','내용'),('업무',TITLES[kind]),('원본',path.name),('원본 행',len(rows)),('결과 행',sum(map(len,groups.values()))),('안내',note)]: append(summary,row)
+    for row in [('항목','내용'),('업무',TITLES[kind]),('원본',path.name),('원본 행',row_count),('결과 행',sum(map(len,groups.values()))),('안내',note)]: append(summary,row)
     if kind=='expense':
         append(summary,('보기','전체보기' if options.get('show_all') else '확인 필요만'))
         if options.get('account_unit') is not None:append(summary,('선택 회계단위',options['account_unit']))
@@ -218,9 +232,3 @@ def save_report(workbook,kind):
     finally:
         temporary.unlink(missing_ok=True)
     return target
-
-
-def run_report(path,kind,**options):
-    workbook=build_report(path,kind,**options)
-    try:return save_report(workbook,kind)
-    finally:workbook.close()

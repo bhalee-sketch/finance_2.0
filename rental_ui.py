@@ -159,8 +159,18 @@ def open_rentals(parent,desktop,center,open_file):
         bars(canvas,group_headers,group_monthly,'월 예상 수익',legend_below_title=True,whole_won=True,show_total=True)
         bars(annual_canvas,['연도',*group_headers[1:]],group_annual,'연 예상 수익',legend_below_title=True,
              whole_won=True,show_total=True)
-    canvas.bind('<Configure>',lambda e:draw())
-    annual_canvas.bind('<Configure>',lambda e:draw())
+    def schedule_draw(event=None):
+        nonlocal graph_job
+        if graph_job is None:graph_job=window.after_idle(draw_pending)
+
+    def draw_pending():
+        nonlocal graph_job
+        graph_job=None
+        draw()
+
+    graph_job=None
+    canvas.bind('<Configure>',schedule_draw)
+    annual_canvas.bind('<Configure>',schedule_draw)
     def render():
         nonlocal shown,projection,group_headers,group_monthly,group_annual
         try:ref,yr=criteria()
@@ -186,7 +196,7 @@ def open_rentals(parent,desktop,center,open_file):
             if r['notes'] or status(r,ref)!='유효':tree.item(iid,tags=('attention',))
         tree.item(tree.get_children()[-1],tags=('total',))
         pdf_buttons.reset(shown)
-        draw()
+        schedule_draw()
         count=len({(r['group'],r['number']) if r['number'] is not None else (r['source'],r['row']) for r in shown})
         message.set(f'{count}개 계약 / {len(shown)}개 임대내역 · 유효 {len(active)}개 내역 · 확인사항 {sum(bool(r["notes"]) for r in shown)}건'+(' · '+' / '.join(issues) if issues else ''))
     def refresh():

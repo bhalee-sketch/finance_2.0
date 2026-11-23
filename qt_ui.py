@@ -921,20 +921,29 @@ class Treeview(Widget):
     def insert(self,parent,index,iid=None,**kw):
         iid=str(iid) if iid is not None else 'I'+str(next(_ids))
         if iid in self.model.records:raise ValueError('Duplicate item ID: '+iid)
-        pos=len(self.model.rows) if index=='end' else int(index);self.model.beginInsertRows(C.QModelIndex(),pos,pos);self.model.rows.insert(pos,iid);self.model.records[iid]={'values':list(kw.get('values',())),'tags':tuple(kw.get('tags',())),'text':kw.get('text',''),'open':kw.get('open',False),'parent':parent};self.model.positions[iid]=pos;self.model.endInsertRows();return iid
+        model=self.model
+        length=len(model.rows)
+        pos=length if index=='end' else int(index)
+        pos=max(0,length+pos) if pos<0 else min(pos,length)
+        model.beginInsertRows(C.QModelIndex(),pos,pos)
+        model.rows.insert(pos,iid)
+        model.records[iid]={'values':list(kw.get('values',())),'tags':tuple(kw.get('tags',())),
+                            'text':kw.get('text',''),'open':kw.get('open',False),'parent':parent}
+        for row in range(pos,len(model.rows)):
+            model.positions[model.rows[row]]=row
+        model.endInsertRows()
+        return iid
     def get_children(self,item=None):return tuple(self.model.rows)
     def delete(self,*items):
-        ids=list(_flatten(items))
+        ids=set(_flatten(items))
         if not ids:return
-        if len(ids)==len(self.model.rows) and set(ids)==set(self.model.rows):self.model.rows.clear();self.model.records.clear();self.model.reset();return
-        for iid in ids:
-            if iid in self.model.rows:self.model.rows.remove(iid)
-            self.model.records.pop(iid,None)
+        self.model.rows=[iid for iid in self.model.rows if iid not in ids]
+        for iid in ids:self.model.records.pop(iid,None)
         self.model.reset()
     def item(self,iid,option=None,**kw):
         rec=self.model.records[str(iid)];rec.update(kw)
         if kw:
-            row=self.model.rows.index(str(iid));self.model.dataChanged.emit(self.model.index(row,0),self.model.index(row,max(0,self.model.columnCount()-1)))
+            row=self.index(iid);self.model.dataChanged.emit(self.model.index(row,0),self.model.index(row,max(0,self.model.columnCount()-1)))
         return rec.get(option) if option else rec.copy()
     def set(self,iid,column=None,value=None):
         rec=self.model.records[str(iid)]
@@ -947,17 +956,20 @@ class Treeview(Widget):
     def selection_set(self,*items):
         self._q.clearSelection()
         for iid in _flatten(items):
-            if str(iid) not in self.model.rows:continue
-            index=self.proxy.mapFromSource(self.model.index(self.model.rows.index(str(iid)),0));self._q.selectionModel().select(index,C.QItemSelectionModel.SelectionFlag.Select|C.QItemSelectionModel.SelectionFlag.Rows)
+            if str(iid) not in self.model.positions:continue
+            index=self.proxy.mapFromSource(self.model.index(self.model.positions[str(iid)],0));self._q.selectionModel().select(index,C.QItemSelectionModel.SelectionFlag.Select|C.QItemSelectionModel.SelectionFlag.Rows)
     def selection_remove(self,*items):
         selected=set(self.selection())-set(_flatten(items));self.selection_set(tuple(selected))
     def selection_add(self,*items):self.selection_set((*self.selection(),*_flatten(items)))
     def focus(self,iid=None):
         if iid is None:
             index=self.proxy.mapToSource(self._q.currentIndex());return self.model.rows[index.row()] if index.isValid() else ''
-        if iid in self.model.rows:self._q.setCurrentIndex(self.proxy.mapFromSource(self.model.index(self.model.rows.index(iid),0)))
+        if iid in self.model.positions:self._q.setCurrentIndex(self.proxy.mapFromSource(self.model.index(self.model.positions[iid],0)))
     def exists(self,iid):return str(iid) in self.model.records
-    def index(self,iid):return self.model.rows.index(str(iid))
+    def index(self,iid):
+        key=str(iid)
+        if key not in self.model.positions:raise ValueError(f'{key!r} is not in list')
+        return self.model.positions[key]
     def move(self,iid,parent,index):
         self.model.rows.remove(iid);self.model.rows.insert(len(self.model.rows) if index=='end' else int(index),iid);self.model.reset()
     def detach(self,*items):
@@ -977,12 +989,12 @@ class Treeview(Widget):
         col=self._q.columnAt(int(x));return '#'+str(col if '#0' in self._visible_columns() else col+1) if col>=0 else ''
     def identify_region(self,x,y):return 'cell' if self.identify_row(y) else 'heading' if y<self._q.horizontalHeader().height() else 'nothing'
     def bbox(self,iid,column=None):
-        if iid not in self.model.rows:return ()
-        cols=self._visible_columns();c=0 if column is None else cols.index(self._resolve_column(column));index=self.proxy.mapFromSource(self.model.index(self.model.rows.index(iid),c));rect=self._q.visualRect(index)
+        if iid not in self.model.positions:return ()
+        cols=self._visible_columns();c=0 if column is None else cols.index(self._resolve_column(column));index=self.proxy.mapFromSource(self.model.index(self.model.positions[iid],c));rect=self._q.visualRect(index)
         if not rect.intersects(self._q.viewport().rect()):return ()
         return rect.x(),rect.y(),rect.width(),rect.height()
     def see(self,iid):
-        if iid in self.model.rows:self._q.scrollTo(self.proxy.mapFromSource(self.model.index(self.model.rows.index(iid),0)))
+        if iid in self.model.positions:self._q.scrollTo(self.proxy.mapFromSource(self.model.index(self.model.positions[iid],0)))
     def xview(self,*args):return _scroll(self._q.horizontalScrollBar(),args)
     def yview(self,*args):return _scroll(self._q.verticalScrollBar(),args)
     def xview_moveto(self,v):return self.xview('moveto',v)

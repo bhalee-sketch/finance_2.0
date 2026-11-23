@@ -1,5 +1,6 @@
 """Persistent account ledger, retaining all original columns and exact amounts."""
 from collections import defaultdict
+from contextlib import closing
 from decimal import Decimal
 import hashlib
 import json
@@ -57,6 +58,8 @@ def import_ledger(source, year, database=DATABASE):
                 source_row INTEGER NOT NULL,payload BLOB NOT NULL,raw_json BLOB NOT NULL,
                 PRIMARY KEY(fiscal_year,source_row));
         ''')
+        if not any(column[1]=='raw_json' for column in connection.execute('PRAGMA table_info(entries)')):
+            raise ValueError('배포용 원장 DB입니다. 원본 검증과 가져오기는 저장소의 전체 원장 DB에서 실행하세요.')
         with connection:
             existing = connection.execute('SELECT sha256 FROM imports WHERE fiscal_year=?', (str(year),)).fetchone()
             if existing and existing[0] != digest:raise ValueError('같은 연도의 다른 원장이 있어 덮어쓰지 않습니다.')
@@ -87,13 +90,22 @@ def import_ledger(source, year, database=DATABASE):
 
 
 def load_records(database, year):
-    with read_connection(database) as connection:
-        result = []
-        for payload, in connection.execute('SELECT payload FROM entries WHERE fiscal_year=? ORDER BY source_row', (str(year),)):
-            record = dict(zip(LEDGER_COLUMNS,json.loads(zlib.decompress(payload))))
+    return list(iter_records(database, year))
+
+
+def iter_records(database, year, *, with_provenance=False, subject=None):
+    if subject is not None:
+        from statement_analysis import normalize
+        subject_column=LEDGER_COLUMNS.index('목')
+    with closing(read_connection(database)) as connection:
+        for number, payload in connection.execute(
+                'SELECT source_row,payload FROM entries WHERE fiscal_year=? ORDER BY source_row', (str(year),)):
+            values=json.loads(zlib.decompress(payload))
+            if subject is not None and normalize(values[subject_column])!=subject:continue
+            record = dict(zip(LEDGER_COLUMNS,values))
             for key in ('차변', '대변'):record[key] = Decimal(record[key])
-            result.append(record)
-        return result
+            if with_provenance:record.update(_source_file=str(database),_source_row=number)
+            yield record
 
 
 if __name__ == '__main__':

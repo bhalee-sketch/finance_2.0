@@ -274,9 +274,3 @@ def save_loan_report(wb):
     finally:
         temporary.unlink(missing_ok=True)
     return target
-
-
-def generate_loans(root,year):
-    wb=build_loan_report(root,year)
-    try:return save_loan_report(wb)
-    finally:wb.close()

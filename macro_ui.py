@@ -10,7 +10,7 @@ from qt_ui import ttk, filedialog, messagebox
 from background_read import BackgroundRead
 from check_list import CheckList
 from finance_accounts import load_finance_accounts
-from macro_reports import TITLES, FOLDERS, build_report, save_report
+from macro_reports import TITLES, FOLDERS, build_report, prepare_expense_report, save_report
 from statement_catalog import amount_text
 from statement_ui import table
 from ui_theme import dark_titlebar
@@ -132,6 +132,7 @@ def open_macro(parent, desktop, center, open_file, kind):
     source = None
     selection = ('', ())
     report = None
+    expense_data = None
     exported_path = None
     view_revision = 0
     status = tk.StringVar(value='원자료 Excel 파일을 선택하세요.')
@@ -200,11 +201,12 @@ def open_macro(parent, desktop, center, open_file, kind):
     tree.proxy.sort(-1)
 
     def clear_report(*_):
-        nonlocal report, exported_path, view_revision
+        nonlocal report, exported_path, view_revision, expense_data
         view_revision += 1
         if report is not None:
             report.close()
             report = None
+        expense_data = None
         exported_path = None
         excel.configure(state='disabled')
         preview.pack_forget()
@@ -285,7 +287,7 @@ def open_macro(parent, desktop, center, open_file, kind):
         excel.configure(state='normal')
         status.set('결과를 생성했습니다. 엑셀 열기를 누르면 저장 후 엽니다.')
 
-    def execute():
+    def execute(*,reuse_expense=False):
         if task.busy:
             return
         if source is None:
@@ -300,19 +302,28 @@ def open_macro(parent, desktop, center, open_file, kind):
         if kind == 'expense':
             options.update(accounts=accounts, account_unit=unit, show_all=expense_view == '전체보기')
 
+        snapshot=expense_data if reuse_expense else None
+
         def work():
-            if kind == 'expense':
+            prepared=snapshot
+            if kind == 'expense' and prepared is None:
                 current = load_finance_accounts(catalog_path)
                 if any(account not in current.get(unit, ()) for account in accounts):
                     raise ValueError('계좌 목록이 변경되었습니다. 처리계좌 선택에서 다시 선택하세요.')
-            return build_report(selected, kind, **options)
+                prepared=prepare_expense_report(selected,accounts=accounts,account_unit=unit)
+            return prepared,build_report(selected,kind,prepared_expense=prepared,**options)
+
+        def done(result):
+            nonlocal expense_data
+            expense_data,workbook=result
+            show_report(workbook)
 
         def failed(error):
             status.set('자료 확인 필요')
             messagebox.showerror('처리 중단', str(error), parent=window)
 
         clear_report()
-        task.run(work, show_report, failed)
+        task.run(work, done, failed)
 
     def open_excel():
         if report is None or task.busy:
@@ -342,7 +353,7 @@ def open_macro(parent, desktop, center, open_file, kind):
         if choice != expense_view:
             expense_view = choice
             if report is not None:
-                execute()
+                execute(reuse_expense=True)
 
     tabs.currentChanged.connect(show_sheet)
     mode.trace_add('write', clear_report)

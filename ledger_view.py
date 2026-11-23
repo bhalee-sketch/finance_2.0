@@ -84,8 +84,7 @@ class PeriodDate(tk.W.QWidget):
 def open_ledger(parent,desktop,center,open_file):
     from finance_ui import shell,target_file,saved
     from audit_review import AccountOrder,matches
-    from analysis_runtime import load_program_ledger,program_statement_paths
-    from audit_review import load_statement_history
+    from analysis_runtime import load_program_ledger,load_program_statement_history
     window,body,status,jobs=shell(parent,'계정별원장 조회',center)
     records=[];paths={};order=AccountOrder();source=None;notes=[]
     top=ttk.Frame(body);top.pack(fill='x',pady=(0,8))
@@ -169,8 +168,7 @@ def open_ledger(parent,desktop,center,open_file):
         requested=year.get();label.set(f'{requested}회계연도 계정별원장')
         def work():
             rows=load_program_ledger(path,requested)
-            folder=next(iter(program_statement_paths().values())).parent
-            history,errors,_=load_statement_history(folder.parent)
+            history,errors,_=load_program_statement_history()
             ordering=AccountOrder(history,rows);rows.sort(key=ordering.key)
             return rows,ordering,errors,choices(rows,ordering,{name:'전체' for name in fields})
         def done(payload):

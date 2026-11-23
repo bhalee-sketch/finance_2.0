@@ -1,4 +1,5 @@
 """그래프 중심 주제별 분석. 화면 금액은 백만원, 표와 Excel은 원 단위."""
+from pathlib import Path
 import qt_ui as tk
 from qt_ui import ttk,messagebox
 from analysis_charts import lines,bars,stacked_years,grant_bars
@@ -167,6 +168,10 @@ def install_topics(notebook,window,jobs,context,display_table,open_file):
         if key=='grants':
             ph=[*ph,'합계'];pr=[r+[complete_sum(r[1:])] for r in pr]
         def work():
+            if key=='ratio':
+                from analysis_runtime import statement_folder
+                for source in sources:
+                    statement_folder(Path(source).name[:4])
             from openpyxl import Workbook
             from finance_data import append_row,format_sheet,save_atomic
             from openpyxl.chart import LineChart,BarChart,Reference

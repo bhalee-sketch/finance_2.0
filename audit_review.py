@@ -106,11 +106,12 @@ def inspect_record(record):
     return result
 
 
-def load_statement_history(settings):
-    history={};issues=[];paths=discover_years(Path(settings)/'finance statement')
+def load_statement_history(settings,*,paths=None,reader=None):
+    if paths is None:paths=discover_years(Path(settings)/'finance statement')
+    history={};issues=[]
     for year,path in paths.items():
         history[year]={}
-        try:record=load_statement_record_from_path(path)
+        try:record=load_statement_record_from_path(path) if reader is None else reader(year,path)
         except Exception as e:issues.append(f'{path.name}: {e}');continue
         scopes={}
         for scope in ('전체','등록금','비등록금'):
@@ -252,8 +253,11 @@ def review_years(data):
 
 def select_reviews(data,year,filters,query=''):
     query=query.strip().casefold()
-    return [x for x in data['reviews'] if str(x['record'].get('_file_year',x['record']['년도']))==str(year)
-            and matches(x['record'],filters) and (not query or any(query in str(x['record'][k]).casefold() for k in ('적요','거래선명','전표번호')))]
+    year=str(year)
+    conditions=[(key,normalized(value)) for key,value in filters.items() if value and value!='전체']
+    return [item for item in data['reviews'] if str((record:=item['record']).get('_file_year',record['년도']))==year
+            and all(normalized(record.get(key,''))==value for key,value in conditions)
+            and (not query or any(query in str(record[key]).casefold() for key in ('적요','거래선명','전표번호')))]
 
 
 def visible_review_values(item):

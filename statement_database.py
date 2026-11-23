@@ -1,5 +1,5 @@
 """Read bundled financial statements from SQLite without the original Excel files."""
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time
 import json
@@ -8,6 +8,7 @@ import sqlite3
 from tempfile import TemporaryDirectory
 
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 
 DATABASE = Path(__file__).resolve().parent / 'data' / 'statements' / 'statements.sqlite3'
@@ -42,6 +43,26 @@ def decode(value):
         constructors = {'date': date, 'datetime': datetime, 'time': time}
         return constructors[value['type']].fromisoformat(value['value'])
     return value
+
+
+def iter_analysis_sheets(source,include):
+    """Read cached values in original sheet and cell order without building an Excel workbook."""
+    with closing(connect(source.database)) as connection:
+        sheets=connection.execute(
+            'SELECT s.id,s.name,s.row_count,s.column_count FROM sheets s JOIN workbooks w ON w.id=s.workbook_id '
+            'WHERE w.fiscal_year=? ORDER BY s.position',(source.year,)).fetchall()
+        for sheet_id,name,height,width in sheets:
+            if not include(name):continue
+            rows=[[None]*width for _ in range(height)]
+            errors={}
+            for row,column,value,kind in connection.execute(
+                    'SELECT row_number,column_number,cached_value_json,excel_type FROM cells '
+                    'WHERE sheet_id=? ORDER BY row_number,column_number',(sheet_id,)):
+                if kind=='e':
+                    errors[f'{get_column_letter(column)}{row}']='Excel 오류'
+                else:
+                    rows[row-1][column-1]=decode(value)
+            yield name,rows,errors
 
 
 def read_workbook(source):
