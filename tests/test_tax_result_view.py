@@ -53,7 +53,7 @@ class TaxResultTests(unittest.TestCase):
             opener=stack.enter_context(patch.object(app,'open_result_file'))
             from openpyxl import load_workbook
             memory_book=load_workbook(output)
-            runner=stack.enter_context(patch.object(app,'run',return_value=memory_book))
+            runner=stack.enter_context(patch('verifier.run',return_value=memory_book))
             app.main();root=q._default_root;errors=[]
             root.report_callback_exception=lambda *a:errors.append(str(a))
             try:
