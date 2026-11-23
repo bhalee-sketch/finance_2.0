@@ -1,11 +1,12 @@
 """Nonblocking startup updates: read-only status and one-time non-modal credential binding."""
 import os
+from pathlib import Path
 import queue
 import subprocess
 import sys
 import threading
 import qt_ui as tk
-from release_update import GithubClient,GithubAccessError,install_root,prepare_release
+from release_update import GithubClient,GithubAccessError,install_root,prepare_release,release_metadata,UpdateError
 from token_store import load_update_token as load_token
 from version_status import version_status
 
@@ -21,6 +22,12 @@ def check_on_start(root):
     if current is None:status.set('현재 버전 정보를 확인할 수 없습니다.');return
     if folder is None or not getattr(sys,'frozen',False):
         status.set(f'현재 {current} · 소스 실행');return
+    try:
+        manual=release_metadata(Path(sys.executable).parent).get('update_channel')=='manual'
+    except (OSError,ValueError,UpdateError):
+        manual=False
+    if manual:
+        status.set(f'현재 {current} · 설치 파일로 업데이트');return
     if (folder/'pending.json').exists():
         status.set(f'현재 {current} · 업데이트 적용 확인 중')
         waits=getattr(root,'_update_pending_waits',0)+1;root._update_pending_waits=waits
