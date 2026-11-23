@@ -30,11 +30,21 @@ def open_deposit(parent, desktop, center, open_file):
     folder=Path(root.get())
     fixed_database=folder/'fixed_accounts.sqlite3'
     regular_database=folder/'regular_accounts.sqlite3'
-    year=tk.StringVar(value=str(date.today().year));month=tk.StringVar(value=str(date.today().month))
-    processing=tk.StringVar(value=date.today().isoformat())
+    today=date.today()
+    year=tk.StringVar(value=str(today.year));month=tk.StringVar(value=str(today.month))
+    processing=tk.StringVar(value=today.isoformat())
     line=ttk.Frame(frame);line.pack(fill='x',pady=(0,10))
-    ttk.Label(line,text='연도').pack(side='left');ttk.Spinbox(line,from_=1900,to=9999,textvariable=year,width=6).pack(side='left',padx=8)
-    ttk.Label(line,text='월').pack(side='left');ttk.Combobox(line,textvariable=month,values=list(range(1,13)),width=4,state='readonly').pack(side='left',padx=8)
+    ttk.Label(line,text='연도').pack(side='left')
+    year_box=ttk.Combobox(line,textvariable=year,values=list(range(today.year+5,today.year-11,-1)),width=6)
+    year_box._q.setAccessibleName('연도')
+    year_box._q.setInsertPolicy(tk.W.QComboBox.InsertPolicy.NoInsert)
+    year_box._q.setValidator(tk.G.QIntValidator(1900,9999,year_box._q))
+    year_box._q.lineEdit().setStyleSheet('background: transparent; border: none; padding: 0;')
+    year_box.pack(side='left',padx=8)
+    ttk.Label(line,text='월').pack(side='left')
+    month_box=ttk.Combobox(line,textvariable=month,values=list(range(1,13)),width=4,state='readonly')
+    month_box._q.setAccessibleName('월')
+    month_box.pack(side='left',padx=8)
     def default_date(*_):
         try:y,m=period(year.get(),month.get());processing.set(f'{y}-{m:02}-01')
         except ValueError:pass

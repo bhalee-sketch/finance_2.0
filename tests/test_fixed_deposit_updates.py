@@ -60,6 +60,15 @@ class FixedUpdateTests(unittest.TestCase):
                             if w.text()=='계좌와 금액을 입력하고 목록에 추가하세요.')
                 self.assertGreaterEqual(footer.height(),footer.fontMetrics().height())
                 self.assertLessEqual(footer.mapTo(window._q,footer.rect().bottomLeft()).y(),window._q.rect().bottom())
+                dates={w.accessibleName():w for w in window._q.findChildren(q.W.QComboBox)
+                       if w.accessibleName() in ('연도','월')}
+                self.assertEqual(set(dates),{'연도','월'})
+                self.assertEqual(dates['연도'].height(),dates['월'].height())
+                self.assertEqual(dates['연도'].geometry().center().y(),dates['월'].geometry().center().y())
+                dates['연도'].setEditText('1999')
+                processing=next(w for w in window._q.findChildren(q.W.QLineEdit)
+                                if w.accessibleName()=='처리예정일 (YYYY-MM-DD)')
+                self.assertTrue(processing.text().startswith('1999-'))
                 buttons={w.text():w for w in window._q.findChildren(q.W.QPushButton)}
                 self.assertNotIn('계좌 새로고침',buttons)
                 self.assertEqual(sum('계획표 생성' in name for name in buttons),1)
