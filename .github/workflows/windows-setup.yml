@@ -31,18 +31,33 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           choco install nsis --version=3.11 --yes --no-progress
           if ($LASTEXITCODE -notin @(0, 1641, 3010)) { exit $LASTEXITCODE }
-      - name: Build Windows executables and installer
+      - name: Freeze Windows executables
         run: |
           $version = python -c "from app_version import SOURCE_VERSION; print(SOURCE_VERSION)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $build = Join-Path $env:RUNNER_TEMP "workspace-build"
-          python scripts/build_windows.py --version $version --output $build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $setup = Join-Path $env:RUNNER_TEMP "WorkSpace-Setup-$version-x64.exe"
-          $compiler = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
-          & $compiler "/DVERSION=$version" "/DPAYLOAD=$build\installer" "/DSETUP_FILE=$setup" scripts/workspace_setup.nsi
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path $setup)) { throw "Setup build failed." }
+          $buildLog = Join-Path $env:RUNNER_TEMP "freeze.log"
+          python scripts/build_windows.py --version $version --output $build 2>&1 | Tee-Object -FilePath $buildLog
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content $buildLog -Tail 12) -join " | "
+            Write-Host "::error::Windows freeze failed. $tail"
+            exit $LASTEXITCODE
+          }
           "WORKSPACE_VERSION=$version" >> $env:GITHUB_ENV
+          "WORKSPACE_PAYLOAD=$build\installer" >> $env:GITHUB_ENV
+      - name: Compile Setup
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP "WorkSpace-Setup-$env:WORKSPACE_VERSION-x64.exe"
+          $compiler = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$compiler) { $compiler = (Get-Command makensis.exe -ErrorAction Stop).Source }
+          $buildLog = Join-Path $env:RUNNER_TEMP "nsis.log"
+          & $compiler "/DVERSION=$env:WORKSPACE_VERSION" "/DPAYLOAD=$env:WORKSPACE_PAYLOAD" "/DSETUP_FILE=$setup" scripts/workspace_setup.nsi 2>&1 | Tee-Object -FilePath $buildLog
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $setup)) {
+            $tail = (Get-Content $buildLog -Tail 8) -join " | "
+            Write-Host "::error::Setup build failed. $tail"
+            exit 1
+          }
           "WORKSPACE_SETUP=$setup" >> $env:GITHUB_ENV
       - name: Install and verify the desktop application
         run: |
