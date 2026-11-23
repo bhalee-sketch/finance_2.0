@@ -1,5 +1,7 @@
 Unicode true
+!ifdef SETUP_AMD64
 Target amd64-unicode
+!endif
 !include "MUI2.nsh"
 !include "x64.nsh"
 

@@ -52,7 +52,7 @@ jobs:
             Where-Object { Test-Path $_ } | Select-Object -First 1
           if (!$compiler) { $compiler = (Get-Command makensis.exe -ErrorAction Stop).Source }
           $buildLog = Join-Path $env:RUNNER_TEMP "nsis.log"
-          & $compiler "/DVERSION=$env:WORKSPACE_VERSION" "/DPAYLOAD=$env:WORKSPACE_PAYLOAD" "/DSETUP_FILE=$setup" scripts/workspace_setup.nsi 2>&1 | Tee-Object -FilePath $buildLog
+          & $compiler /INPUTCHARSET UTF8 "/DVERSION=$env:WORKSPACE_VERSION" "/DPAYLOAD=$env:WORKSPACE_PAYLOAD" "/DSETUP_FILE=$setup" scripts/workspace_setup.nsi 2>&1 | Tee-Object -FilePath $buildLog
           if ($LASTEXITCODE -ne 0 -or !(Test-Path $setup)) {
             $tail = (Get-Content $buildLog -Tail 8) -join " | "
             Write-Host "::error::Setup build failed. $tail"
