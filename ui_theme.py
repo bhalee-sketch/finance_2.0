@@ -7,6 +7,7 @@ def qt_stylesheet(theme='light',text_scale=110,text_sizes=None):
     assets=(Path(__file__).resolve().parent/'assets').as_posix()
     light=theme=='light'
     bg='#F5F2FA' if light else '#171422';panel='#FFFFFF' if light else '#231F30';text='#403B4A' if light else '#EAE5F4';muted='#696174' if light else '#ADA4BF';border='#E9E3F0' if light else '#3A324D';accent='#7651AD' if light else '#B99AEF';selection='#E9DFF7' if light else '#44345D';stripe='#FAF8FD' if light else '#292435';button_text='#FFFFFF' if light else '#211A2D'
+    check_border='#81748F' if light else '#A99AB8'
     stylesheet=f'''
 QWidget {{ color:{text}; background-color:{panel}; }}
 QLabel {{ background:transparent; }}
@@ -26,6 +27,9 @@ QComboBox {{ padding-right:28px; combobox-popup:0; }}
 QComboBox::drop-down {{ subcontrol-origin:padding; subcontrol-position:top right; border:0; width:24px; }}
 QComboBox::down-arrow {{ image:url("{arrow}"); width:12px; height:12px; }}
 QComboBox QAbstractItemView {{ background:{panel}; color:{text}; selection-background-color:{selection}; selection-color:{text}; outline:0; }}
+QCheckBox::indicator {{ width:14px; height:14px; border:1px solid {check_border}; border-radius:3px; background:{panel}; }}
+QCheckBox::indicator:checked {{ border-color:{accent}; background:#7651AD; image:url("{assets}/check.svg"); }}
+QCheckBox::indicator:disabled {{ border-color:{border}; }}
 QComboBox QAbstractItemView::item:hover,QComboBox QAbstractItemView::item:selected {{ background:{selection}; color:{text}; }}
 QGroupBox {{ border:1px solid {border}; border-radius:6px; margin-top:12px; padding:10px; }}
 QGroupBox::title {{ subcontrol-origin:margin; left:10px; padding:0 4px; color:{muted}; }}
@@ -37,8 +41,9 @@ QTabBar QToolButton {{ background:{selection}; color:{accent}; border:1px solid 
 QTabBar QToolButton::left-arrow {{ image:url("{assets}/chevron-left.svg"); width:18px; height:18px; }}
 QTabBar QToolButton::right-arrow {{ image:url("{assets}/chevron-right.svg"); width:18px; height:18px; }}
 QTabBar QToolButton:disabled {{ background:{panel}; border-color:{border}; }}
-QTabBar::tab {{ padding:9px 14px; border-bottom:2px solid transparent; }}
-QTabBar::tab:selected {{ color:{accent}; border-bottom-color:{accent}; background:{panel}; }}
+QTabBar::tab {{ padding:9px 14px; border:0; background:{panel}; }}
+QTabBar::tab:hover {{ background:{stripe}; }}
+QTabBar::tab:selected {{ color:{accent}; background:{selection}; }}
 QScrollBar:vertical {{ width:12px; background:{bg}; }}
 QScrollBar:horizontal {{ height:12px; background:{bg}; }}
 QScrollBar::handle {{ background:{border}; border-radius:5px; min-height:24px; min-width:24px; }}
@@ -53,12 +58,12 @@ QFrame#WorkspaceSidebar {{ background:{panel}; border:1px solid {border}; border
 QWidget#WorkspaceHomePanel {{ background:{panel}; border-radius:13px; }}
 QTabWidget#WorkspacePages::pane {{ background:{panel}; border:1px solid {border}; border-radius:13px; }}
 QTabBar#WorkspaceTabs {{ background:transparent; border-bottom:1px solid {border}; }}
-QTabBar#WorkspaceTabs::tab {{ background:transparent; color:{muted}; padding:5px 6px; margin:0; border:0; border-bottom:3px solid transparent; border-radius:0; min-width:0; }}
+QTabBar#WorkspaceTabs::tab {{ background:transparent; color:{muted}; padding:5px 6px; margin:0; border:0; border-radius:0; min-width:0; }}
 QTabBar#WorkspaceTabs QToolButton {{ padding:0; margin:0; }}
 QToolButton#WorkspaceTabClose {{ background:transparent; border:0; min-width:22px; }}
 QToolButton#WorkspaceTabClose:hover {{ background:{selection}; }}
-QTabBar#WorkspaceTabs::tab:selected {{ background:{selection}; color:{accent}; border-bottom:3px solid {accent}; font-weight:600; }}
-QTabBar#WorkspaceTabs[homeActive="true"]::tab:selected {{ background:transparent; color:{muted}; border-bottom-color:transparent; }}
+QTabBar#WorkspaceTabs::tab:selected {{ background:{selection}; color:{accent}; font-weight:600; }}
+QTabBar#WorkspaceTabs[homeActive="true"]::tab:selected {{ background:transparent; color:{muted}; }}
 QToolButton#WorkspaceHomeButton:checked {{ background:{selection}; }}
 QTabBar#WorkspaceTabs::tab:hover {{ background:{selection}; }}
 QLabel#WorkspaceLocalBadge {{ background:{selection}; color:{accent}; border-radius:9px; padding:4px 9px; font-size:10pt; }}
@@ -101,22 +106,25 @@ def apply_theme(root):
     from appearance import set_appearance
     set_appearance(root,'light','Paperlogy')
 
-def dark_titlebar(window):
+def dark_titlebar(window, *, theme=None):
     """Keep native Windows controls, with colors matching the application theme."""
     import sys
-    if sys.platform!='win32' or not window._q.isWindow():return
+    widget=getattr(window,'_q',window)
+    if sys.platform!='win32' or not widget.isWindow():return
     import ctypes
     from ctypes import wintypes
-    from appearance import controller
-    appearance=controller(window)
-    light=appearance is None or appearance.theme=='light'
+    if theme is None and hasattr(window,'_root'):
+        from appearance import controller
+        appearance=controller(window)
+        theme=appearance.theme if appearance else None
+    light=theme!='dark'
     def colorref(value):
         r,g,b=bytes.fromhex(value.lstrip('#'));return r|(g<<8)|(b<<16)
     try:
         apply=ctypes.windll.dwmapi.DwmSetWindowAttribute
         apply.argtypes=[wintypes.HWND,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD]
         apply.restype=ctypes.c_long
-        hwnd=window.winfo_id()
+        hwnd=int(widget.winId())
         for attribute,value in ((20,int(not light)),(35,colorref('#F5F2FA' if light else '#171422')),(36,colorref('#403B4A' if light else '#EAE5F4'))):
             data=wintypes.DWORD(value)
             apply(hwnd,attribute,ctypes.byref(data),ctypes.sizeof(data))

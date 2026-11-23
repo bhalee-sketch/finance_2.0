@@ -126,6 +126,10 @@ def open_suspense(parent,desktop,center,open_file):
         trees[name]._q.setProperty('compactRows',True)
         from suspense_table import configure_detail_table
         configure_detail_table(trees[name])
+        if name=='미매칭 잔여':
+            from check_list import CenteredCheckDelegate
+            view=trees[name]._q
+            view.setItemDelegateForColumn(1,CenteredCheckDelegate(view))
         widths={'구분':55,'매칭번호':155,'판정':100,'유형':75,'전표정보':100,'회계일자':95,'부서명':100,'거래선':110,'차변':110,'대변':110,'적요':260,'원본행':65,'배분':110,'차변 잔여':110,'대변 잔여':110,'탐색 상태':170}
         if name=='거래처 규칙':
             for col in custom[name]:trees[name].column(col,width=260,stretch=True)

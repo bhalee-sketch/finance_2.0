@@ -73,11 +73,17 @@ def apply_widths(tree,widths):
 
 def compact_combo(box,values):
     """필요한 텍스트 폭만 확보하고 부모 폭에 맞춰 늘리지 않는다."""
-    import math
-    from qt_ui import font as tkfont
-    font=tkfont.Font(font=ttk.Style(box).lookup('TCombobox','font') or ('맑은 고딕',10))
-    pixels=max((font.measure(str(v)) for v in values),default=font.measure('전체'))
-    box.configure(values=values,width=max(4,math.ceil(pixels/max(1,font.measure('0')))+1))
+    box.configure(values=values)
+    widget=box._q
+    metrics=widget.fontMetrics()
+    pixels=max((metrics.horizontalAdvance(str(value)) for value in values),default=metrics.horizontalAdvance('전체'))
+    option=tk.W.QStyleOptionComboBox()
+    widget.initStyleOption(option)
+    edit=widget.style().subControlRect(tk.W.QStyle.ComplexControl.CC_ComboBox,option,
+                                     tk.W.QStyle.SubControl.SC_ComboBoxEditField,widget)
+    # Account for the arrow, borders and horizontal padding in the active theme.
+    widget.setMinimumWidth(max(70,pixels+max(36,widget.width()-edit.width())+6))
+
 
 
 def open_merge(parent,desktop,center,open_file,ledger=False):

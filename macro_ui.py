@@ -176,13 +176,7 @@ def open_macro(parent, desktop, center, open_file, kind):
                          state='readonly'))
         actions.addStretch()
     else:
-        check = add(ttk.Checkbutton(line, text='미지급금 · 각종세금예수금 · 가수금 제외', variable=exclude))
-        icon = (Path(__file__).resolve().parent/'assets'/'check.svg').as_posix()
-        check._q.setStyleSheet(
-            'QCheckBox::indicator {width:15px;height:15px;border:2px solid #827491;'
-            'border-radius:3px;background:#FFFFFF;}'
-            f'QCheckBox::indicator:checked {{background:#7651AD;image:url("{icon}");}}'
-        )
+        add(ttk.Checkbutton(line, text='미지급금 · 각종세금예수금 · 가수금 제외', variable=exclude))
         actions.addStretch()
     add(ttk.Button(line, text='결과 생성', command=lambda: execute(), style='Primary.TButton'))
     excel = add(ttk.Button(line, text='엑셀 열기', command=lambda: open_excel(), state='disabled'))
@@ -196,9 +190,42 @@ def open_macro(parent, desktop, center, open_file, kind):
     tabs.setExpanding(False)
     tabs.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored, tk.W.QSizePolicy.Policy.Fixed)
     tab_layout.addWidget(tabs)
-    tree = table(preview, [], auto_scroll=True, column_preferences=False)
+    tree = table(preview, [], auto_scroll=True, horizontal_scroll=kind != 'expense', column_preferences=False)
     tree._q.setSortingEnabled(False)
     tree.proxy.sort(-1)
+    expense_widths = []
+    if kind == 'expense':
+        from statement_grid import StatementHeader
+        header = StatementHeader(tk.C.Qt.Orientation.Horizontal, tree._q)
+        tree._q.setHorizontalHeader(header)
+        header.setMinimumSectionSize(1)
+        header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+        tree._q.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def fit_expense_columns(event=None):
+        if not expense_widths or not tree.winfo_exists():
+            return
+        room = tree._q.viewport().width()
+        count = len(expense_widths)
+        if room < count:
+            return
+        minimum = min(32, room // count)
+        remaining = room - minimum * count
+        total = sum(width for _, width in expense_widths)
+        used = weight = 0
+        for column, width in expense_widths:
+            weight += width
+            edge = round(remaining * weight / total)
+            fitted = minimum + edge - used
+            if tree.column(column, 'width') != fitted:
+                tree.column(column, width=fitted)
+            used = edge
+        height = header.wrapped_height()
+        if header.height() != height:
+            header.setFixedHeight(height)
+
+    if kind == 'expense':
+        tree.bind('<Configure>', fit_expense_columns, add='+')
 
     def clear_report(*_):
         nonlocal report, exported_path, view_revision, expense_data
@@ -210,6 +237,7 @@ def open_macro(parent, desktop, center, open_file, kind):
         exported_path = None
         excel.configure(state='disabled')
         preview.pack_forget()
+        expense_widths.clear()
         tree.delete(*tree.get_children())
         status.set('결과 생성을 누르세요.' if source else '원자료 Excel 파일을 선택하세요.')
 
@@ -246,6 +274,7 @@ def open_macro(parent, desktop, center, open_file, kind):
                    if not getattr(sheet.column_dimensions.get(get_column_letter(i)), 'hidden', False)]
         columns = [str(i) for i in visible]
         tree.delete(*tree.get_children())
+        expense_widths.clear()
         tree.configure(columns=columns)
         for i, column in zip(visible, columns):
             header = sheet.cell(1, i).value or ''
@@ -253,7 +282,11 @@ def open_macro(parent, desktop, center, open_file, kind):
             width = round(dimension.width*7) if dimension else 130
             tree.heading(column, text=header)
             tree.column(column, width=max(80, width), stretch=False,
-                        anchor='e' if any(word in str(header) for word in ('금액', '잔액', '차변', '대변')) else 'w')
+                        anchor='e' if any(word in str(header) for word in ('금액', '잔액', '차변', '대변', '합계', '건수')) else 'w')
+            if kind == 'expense':
+                expense_widths.append((column, max(80, width)))
+        if kind == 'expense':
+            tree.after_idle(fit_expense_columns)
         rows = sheet.iter_rows(min_row=2, values_only=True) if sheet.max_row > 1 else iter(())
 
         def append_rows():

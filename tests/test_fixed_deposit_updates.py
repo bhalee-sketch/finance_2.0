@@ -7,7 +7,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from openpyxl import Workbook
 import qt_ui as q
 from fixed_deposit_database import normalize_source,import_fixed_accounts,load_fixed_accounts,DATABASE
-from deposit_accounts import load_accounts
+from deposit_accounts import load_accounts,store_accounts
 from deposit_plan import read_catalog
 from deposit_ui import open_deposit
 
@@ -90,16 +90,19 @@ class FixedUpdateTests(unittest.TestCase):
                 self.assertIs(buttons['계좌 추가'].parentWidget(),buttons['계획표 생성'].parentWidget())
                 self.assertLess(buttons['계좌 추가'].x(),buttons['계획표 생성'].x())
 
-                def account_dialog(regular=False):
-                    buttons['계좌 추가'].click()
-                    dialog=next(w for w in window.winfo_children() if isinstance(w,q.Toplevel) and w.title()=='계좌 추가')
+                self.assertLess(buttons['이자이체계좌 설정'].x(),buttons['계좌 추가'].x())
+
+                def account_dialog(regular=False,interest=False):
+                    title='이자이체계좌 설정' if interest else '계좌 추가'
+                    buttons[title].click()
+                    dialog=next(w for w in window.winfo_children() if isinstance(w,q.Toplevel) and w.title()==title)
                     if regular:
                         box=next(w for w in dialog._q.findChildren(q.W.QComboBox) if w.accessibleName()=='계좌 종류')
                         box.setCurrentIndex(1);box.activated.emit(1)
                     return dialog
 
-                def add_account(number,regular=False):
-                    dialog=account_dialog(regular)
+                def add_account(number,regular=False,interest=False):
+                    dialog=account_dialog(regular,interest)
                     values={'계좌번호':number,'은행명':'테스트은행','계좌명':'신규계좌','회계단위':'교비','원금':'10,000'}
                     for entry in dialog._q.findChildren(q.W.QLineEdit):
                         entry.setText(values[entry.accessibleName()])
@@ -124,7 +127,15 @@ class FixedUpdateTests(unittest.TestCase):
                 add_account('000-02',regular=True)
                 self.assertIn('00002',load_accounts(local/'regular_accounts.sqlite3'))
                 self.assertTrue(choices('원금 이체 계좌')[0].startswith('000-02'))
-                self.assertTrue(choices('이자 이체 계좌')[1].startswith('000-02'))
+                self.assertEqual(choices('이자 이체 계좌'),[])
+                add_account('000-03',interest=True)
+                self.assertEqual(list(load_accounts(local/'interest_accounts.sqlite3')),['00003'])
+                self.assertTrue(choices('이자 이체 계좌')[0].startswith('000-03'))
+                interest_combo=next(w for w in window._q.findChildren(q.W.QComboBox) if w.accessibleName()=='이자 이체 계좌')
+                self.assertFalse(interest_combo.isEnabled())
+                check=next(w for w in window._q.findChildren(q.W.QCheckBox) if w.text()=='이자 별도 이체')
+                check.click()
+                self.assertTrue(interest_combo.isEnabled())
 
                 upload_accounts(DATABASE.parent/'originals'/'원본 FIXED.xls')
                 self.assertEqual(window._latest_fixed_import['accounts'],75)
@@ -137,12 +148,15 @@ class FixedUpdateTests(unittest.TestCase):
                 upload_accounts(source,regular=True)
                 self.assertEqual(list(load_accounts(local/'regular_accounts.sqlite3')),['00501'])
                 self.assertEqual(len(choices('원금 이체 계좌')),1)
+                self.assertTrue(choices('이자 이체 계좌')[0].startswith('000-03'))
         finally:root.destroy()
 
     def test_draft_reopens_in_last_worked_month_and_persists_deletion(self):
         root=q.Tk()
         try:
             with tempfile.TemporaryDirectory() as folder:
+                database=Path(folder)/'settings'/'deposit plan'/'interest_accounts.sqlite3'
+                store_accounts(database,{'00009':{'account':'000-09','bank':'테스트은행','name':'이자 계좌'}},'테스트')
                 def open_window():
                     open_deposit(root,lambda:Path(folder),lambda w,x,y:w.geometry(f'{x}x{y}'),lambda *a:None)
                     window=next(w for w in root.winfo_children() if isinstance(w,q.Toplevel))
@@ -164,16 +178,31 @@ class FixedUpdateTests(unittest.TestCase):
                 for edit in window._q.findChildren(q.W.QLineEdit):
                     if edit.accessibleName() in ('세전이자','법인세','지방소득세'):
                         edit.setText('1000' if edit.accessibleName()=='세전이자' else '0')
+                        self.assertEqual(edit.text(),'1,000' if edit.accessibleName()=='세전이자' else '0')
                 buttons['목록에 추가  →'].click()
                 self.assertEqual(len(table.get_children()),1)
                 window.destroy()
 
                 window,combo,table,buttons=open_window()
                 self.assertEqual(combo['월'].currentText(),'12')
-                self.assertEqual(table.item('1','values')[2:],[ '1,000','2026-12-01'])
+                self.assertEqual(table.cget('columns'),('name','account','principal','net','destination','interest_destination','date'))
+                values=table.item('1','values')
+                self.assertEqual(values[0],combo['출금할 정기예금 계좌'].itemText(0).split(' · ',2)[2])
+                self.assertEqual(values[3],'1,000')
+                self.assertEqual(values[4:6],[combo['원금 이체 계좌'].itemText(0).split(' · ',1)[0]]*2)
+                self.assertEqual(values[6],'2026-12-01')
+                table.selection_set('1')
+                check=next(w for w in window._q.findChildren(q.W.QCheckBox) if w.text()=='이자 별도 이체')
+                check.setChecked(True)
+                combo['이자 이체 계좌'].setEditText(combo['이자 이체 계좌'].itemText(0))
+                buttons['선택 항목 수정'].click()
+                self.assertEqual(table.item('1','values')[5],'000-09')
                 combo['월'].setCurrentText('11')
                 self.assertEqual(table.get_children(),())
                 combo['월'].setCurrentText('12')
+                table.selection_set('1')
+                self.assertTrue(check.isChecked())
+                self.assertTrue(combo['이자 이체 계좌'].currentText().startswith('000-09'))
                 rect=table._q.visualRect(table._q.model().index(0,0))
                 table.event_generate('<Button-1>',x=rect.center().x(),y=rect.center().y())
                 buttons['체크 항목 삭제'].click()

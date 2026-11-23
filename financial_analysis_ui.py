@@ -12,7 +12,7 @@ from financial_analysis import (SCOPES,DEFAULT_PRESET,ANALYSIS_HEADERS,analysis_
     denominator,validate_preset,appendix_check,ledger_matches,export_report,trend_rows,statement_view)
 from analysis_runtime import load_analysis_history as load_history
 from statement_analysis import normalize
-from analysis_presentation import unit_label,available_units,analysis_total,trend_total,complete_sum,pie_values,expand_to_mok,multi_trend,source_total_row,expanded_composition
+from analysis_presentation import unit_label,available_units,trend_total,complete_sum,pie_values,expand_to_mok,multi_trend,source_total_row,expanded_composition
 
 
 def display_table(tree,headers,rows,numeric=()):
@@ -59,10 +59,11 @@ def open_financial_analysis(parent,desktop,center,open_file):
     compact_combo(controls['범위'],['수입','지출'])
     denominator_note=tk.StringVar(value='기본 분모: 교비 + 대학원 등록금수입')
     cards=ttk.Frame(body);cards.pack(fill='x',pady=(3,10));kpi_values=[]
-    for i,(title,color) in enumerate([('선택 기준 금액','#E7F0FC'),('전년 대비 증감액','#6CE2C9'),('전년 대비 증감률','#70DDEA'),('선택 수입 분모 대비','#C1B5F5'),('표시 과목 구성비','#9EC4FC')]):
+    summaries=(('결산액','#E7F0FC'),('전년 대비 증감액','#6CE2C9'),('전년 대비 증감률','#70DDEA'))
+    for i,(title,color) in enumerate(summaries):
         cards.columnconfigure(i,weight=1,uniform='kpi')
         card=tk.Frame(cards,bg='#1D3049' if i==0 else '#1B293D',highlightbackground='#365672',highlightthickness=1,padx=12,pady=9)
-        card.grid(row=0,column=i,sticky='nsew',padx=(0,7 if i<4 else 0))
+        card.grid(row=0,column=i,sticky='nsew',padx=(0,7 if i<len(summaries)-1 else 0))
         tk.Label(card,text=title,bg=card['bg'],fg='#B9CCDF',font=('맑은 고딕',9)).pack(anchor='w')
         value=tk.StringVar(value='—');kpi_values.append(value)
         tk.Label(card,textvariable=value,bg=card['bg'],fg=color,font=('맑은 고딕',17,'bold')).pack(anchor='w',pady=(4,0))
@@ -188,7 +189,6 @@ def open_financial_analysis(parent,desktop,center,open_file):
             values=['전체']+candidates
             if filters[key].get() not in values:filters[key].set('전체')
             compact_combo(controls[key],values)
-            controls[key].configure(width=min(14,int(controls[key].cget('width'))))
 
     graph_job=None
     def schedule_graphs(event=None):
@@ -207,7 +207,8 @@ def open_financial_analysis(parent,desktop,center,open_file):
             total_name=source_total_row(data,None,scope.get(),unit.get(),section.get(),statement.get())[0] if not current_path() else '선택 과목 합계'
         else:base=None;total_name='합계'
         donut(canvas,pie_values(shown),label,base,total_name)
-        (bars if graph_type.get()=='막대' else lines)(trend_canvas,series_headers,series_rows,label)
+        if series_paths:(bars if graph_type.get()=='막대' else lines)(trend_canvas,series_headers,series_rows,label)
+        else:trend_canvas.delete('all')
 
     def total_path():
         kind=statement.get()
@@ -217,11 +218,17 @@ def open_financial_analysis(parent,desktop,center,open_file):
 
     def update_series():
         nonlocal series_headers,series_rows
+        amount_button.configure(state='normal' if series_paths else 'disabled')
+        if not series_paths:
+            series_headers,series_rows=['연도'],[]
+            trend_tree.delete(*trend_tree.get_children())
+            return
         series_headers,series_rows=multi_trend(analysis_history(),sources,scope.get(),unit.get(),section.get(),series_paths)
         total=['조회 연도 합계']+[complete_sum(r[i] for r in series_rows) for i in range(1,len(series_headers))]
         display_table(trend_tree,series_headers,series_rows+[total],range(1,len(series_headers)));mark_total(trend_tree)
 
     def annual_popup():
+        if not series_paths:return
         from analysis_table_popup import amount_popup
         total=['조회 연도 합계']+[complete_sum(r[i] for r in series_rows) for i in range(1,len(series_headers))]
         amount_popup(window,series_headers,series_rows+[total],display_table,
@@ -238,10 +245,6 @@ def open_financial_analysis(parent,desktop,center,open_file):
         expanded.add(path);render()
     def collapse():expanded.clear();render()
     expansionbar=ttk.Frame(ledgerbar);expansionbar.pack(side='top',fill='x')
-    for value,label in ((1,'항'),(2,'목')):
-        ttk.Radiobutton(expansionbar,text=label,variable=expand_depth,value=value,command=lambda:render(),style='Statement.TRadiobutton').pack(side='left')
-    ttk.Button(expansionbar,text='선택 관 펼치기',command=expand_selected).pack(side='left',padx=3)
-    ttk.Button(expansionbar,text='접기',command=collapse).pack(side='left',padx=3)
 
     def show_guan():
         if selected.get() not in history:return
@@ -258,12 +261,26 @@ def open_financial_analysis(parent,desktop,center,open_file):
         if not history:return
         dialog=tk.Toplevel(window);dialog.title('연도별 비교 과목 선택')
         from ui_theme import dark_titlebar
-        dark_titlebar(dialog);center(dialog,620,500)
+        dark_titlebar(dialog)
+        dialog._scroll.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        dialog._scroll.setVerticalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        width=min(620,dialog.winfo_screenwidth()-48)
         frame=ttk.Frame(dialog,padding=15);frame.pack(fill='both',expand=True)
-        ttk.Label(frame,text='최대 6개 과목을 선택하세요. 체크박스로 여러 항목을 선택합니다.',style='Muted.TLabel').pack(anchor='w',pady=8)
-        holder=ttk.Frame(frame);holder.pack(fill='both',expand=True)
+        ttk.Label(frame,text='최대 6개 과목을 선택하세요. 체크박스로 여러 항목을 선택합니다.',
+                  style='Muted.TLabel',wraplength=width-48).pack(fill='x',pady=8)
+        holder=ttk.Frame(frame)
+        holder._q.setSizePolicy(tk.W.QSizePolicy.Policy.Ignored,tk.W.QSizePolicy.Policy.Ignored)
         box=CheckList(holder,selectmode='extended',exportselection=False,bg='#192131',fg='#EDF2FA',selectbackground='#31546B',highlightthickness=0)
-        box.pack(side='left',fill='both',expand=True);scroll=ttk.Scrollbar(holder,orient='vertical',command=box.yview);scroll.pack(side='right',fill='y');box.configure(yscrollcommand=scroll.set)
+        scroll=ttk.Scrollbar(holder,orient='vertical',command=box.yview)
+        def sync_scroll(*_):
+            first,last=box.yview()
+            scroll.set(first,last)
+            if first>0 or last<1:
+                if not scroll.winfo_manager():scroll.pack(side='right',fill='y',before=box)
+            elif scroll.winfo_manager():scroll.pack_forget()
+        box.configure(yscrollcommand=sync_scroll)
+        box.canvas._q.verticalScrollBar().rangeChanged.connect(sync_scroll)
+        box.pack(fill='both',expand=True)
         paths=[total_path()]+[r['item']['path'] for r in shown]
         for i,path in enumerate(paths):
             box.insert('end',path[-1] if path[0]=='__total__' else ' / '.join(path))
@@ -271,9 +288,12 @@ def open_financial_analysis(parent,desktop,center,open_file):
         def apply():
             nonlocal series_paths
             choices=box.curselection()
-            if not 1<=len(choices)<=6:messagebox.showinfo('과목 선택','1~6개 과목을 선택하세요.',parent=dialog);return
+            if len(choices)>6:messagebox.showinfo('과목 선택','최대 6개 과목을 선택하세요.',parent=dialog);return
             series_paths=[paths[i] for i in choices];update_series();graphs();dialog.destroy()
-        ttk.Button(frame,text='선택 적용',command=apply).pack(anchor='e',pady=10)
+        ttk.Button(frame,text='선택 적용',command=apply,style='Primary.TButton').pack(side='bottom',anchor='n',pady=(10,0))
+        holder.pack(fill='both',expand=True)
+        list_height=sum(button.winfo_reqheight() for button in box.buttons)
+        center(dialog,width,min(list_height+154,dialog.winfo_screenheight()-80))
     for label in ('꺾은선','막대'):
         ttk.Radiobutton(series_bar,text=label,variable=graph_type,value=label,command=graphs,style='Statement.TRadiobutton').pack(side='right',padx=5)
     canvas.bind('<Configure>',schedule_graphs);trend_canvas.bind('<Configure>',schedule_graphs)
@@ -291,17 +311,13 @@ def open_financial_analysis(parent,desktop,center,open_file):
         positive=sum((r['values'][1] for r in shown if r['values'][1] is not None and r['values'][1]>0),Decimal(0))
         compact_headers[1]='결산' if statement.get()=='자금계산서' else '당기'
         compact_rows=[[r['item']['path'][-1],r['values'][1],r['values'][1]/positive*100 if positive>0 and r['values'][1] is not None and r['values'][1]>0 else None,r['values'][5]] for r in shown]
-        total=analysis_total(shown,base,amount)
-        from analysis_charts import compact
         from financial_analysis import ratio
         _,previous_base=analysis_rows(statement_view(history.get(prior_year,{}),statement.get()),None,scope.get(),unit.get(),section.get(),current_path(),None)
         delta=base-previous_base if base is not None and previous_base is not None else None
-        growth=ratio(delta,previous_base);denom_ratio=ratio(base,amount)
+        growth=ratio(delta,previous_base)
         labels=[compact(base) if base is not None else '자료 필요',
                 ('+' if delta>0 else '')+compact(delta) if delta is not None else '자료 필요',
-                f'{growth:+,.2f}%' if growth is not None else '자료 필요',
-                f'{denom_ratio:,.2f}%' if denom_ratio is not None else '자료 필요',
-                f'{total[2]:,.2f}%' if total[2] is not None else '자료 필요']
+                f'{growth:+,.2f}%' if growth is not None else '자료 필요']
         for variable,label in zip(kpi_values,labels):variable.set(label)
         source_total=source_total_row(statement_view(current,statement.get()),statement_view(history.get(prior_year,{}),statement.get()),scope.get(),unit.get(),section.get(),statement.get())
         display_table(analysis_tree,compact_headers,compact_rows+[source_total],(1,2,3))
@@ -309,8 +325,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
         schedule_panel_fit()
         context=(statement.get(),scope.get(),unit.get(),section.get(),current_path())
         valid=[total_path()]+[r['item']['path'] for r in shown]
-        if series_context!=context:series_paths=valid[:3]
-        else:series_paths=[p for p in series_paths if p in valid] or valid[:3]
+        series_paths=[path for path in series_paths if path in valid] if series_context==context else []
         series_context=context;update_series()
         for i,item in enumerate(analysis_tree.get_children()[:-1]):
             analysis_tree.tag_configure('stripe',background='#203248');analysis_tree.item(item,tags=('stripe',) if i%2 else ())
@@ -327,11 +342,11 @@ def open_financial_analysis(parent,desktop,center,open_file):
     def refresh():
         if jobs.busy:return
         def done(result):
-            nonlocal history,issues,sources,checked_year,checks,check_notes,shown,trend,series_rows,series_headers
+            nonlocal history,issues,sources,checked_year,checks,check_notes,shown,trend,series_paths,series_context
             history,issues,sources=result;checked_year=None;checks=[];check_notes=[]
             year_box.configure(values=list(history))
             if not history:
-                shown=[];trend=[];series_rows=[];series_headers=['연도']
+                shown=[];trend=[];series_paths=[];series_context=None;update_series()
                 for value in kpi_values:value.set('—')
                 denominator_note.set('분모: 재무제표 자료 없음')
                 for tree in (analysis_tree,trend_tree):tree.delete(*tree.get_children())
@@ -366,8 +381,21 @@ def open_financial_analysis(parent,desktop,center,open_file):
             statement_folder()
             return export_report(*args)
         jobs.run(work,lambda p:saved(window,status,open_file,p))
-    for container,title,command in [(actions,'새로고침',refresh),(actions,'Excel 저장',export),(expansionbar,'선택 과목 원장 조회',ledger),(series_bar,'비교 과목 선택',choose_series),(series_bar,'연도별 금액',annual_popup)]:
+    expansion_controls=[
+        ttk.Radiobutton(expansionbar,text=label,variable=expand_depth,value=value,
+                        command=render,style='Statement.TRadiobutton')
+        for value,label in ((1,'항'),(2,'목'))
+    ]
+    expansion_controls.extend(ttk.Button(expansionbar,text=title,command=command) for title,command in (
+        ('선택 관 펼치기',expand_selected),('접기',collapse),('선택 과목 원장 조회',ledger)
+    ))
+    for control in expansion_controls:
+        control.pack(side='left',anchor='w',padx=(0,6),pady=3)
+        jobs.controls.append(control)
+    for container,title,command in [(actions,'새로고침',refresh),(actions,'Excel 저장',export),(series_bar,'비교 과목 선택',choose_series),(series_bar,'연도별 금액',annual_popup)]:
         button=ttk.Button(container,text=title,command=command);button.pack(side='left',padx=4,pady=3);jobs.controls.append(button)
+        if command is annual_popup:
+            amount_button=button;amount_button.configure(state='disabled')
     analysis_tree.bind('<Double-1>',lambda e:ledger())
     from topic_ui import install_topics
     topic_refresh=install_topics(notebook,window,jobs,lambda:(history,selected.get(),scope.get(),unit.get(),preset,current_path()),display_table,open_file)

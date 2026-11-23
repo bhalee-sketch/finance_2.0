@@ -87,7 +87,7 @@ def load_reserves(settings,year,statement,*,ledger_loader=None,statement_record=
         rows=[row for row in fund['details'] if normalize(row[0])=='임의건축기금' and normalize(row[1])=='건축기금(감가상각)']
         if len(rows)!=1:raise ValueError('임의건축기금 / 건축기금(감가상각) 내역 누락 또는 중복')
         sources['fund_file']=str(fund['source']);return rows[0][-1]
-    read('tuition_reserve',fund_amount,'기금사용현황 · 임의건축기금/건축기금(감가상각) · 기말잔액')
+    read('tuition_reserve',fund_amount,'기금 현황 · 임의건축기금/건축기금(감가상각) · 기말잔액')
     def building_depreciation():
         path=discover_appendices(statement)['운영계산서'];sources['depreciation_file']=str(path) if path else ''
         return depreciation(path)

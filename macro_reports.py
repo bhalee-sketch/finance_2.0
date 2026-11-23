@@ -2,6 +2,7 @@
 from result_paths import result_path
 from collections import Counter
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
@@ -36,6 +37,7 @@ def expense_rule_key(value):
 
 
 def expense_fund_passes(account, fund):
+    if not fund:return True
     account_key = expense_rule_key(account).split('(', 1)[0]
     if account_key == '임의기금지급':
         return fund.startswith(EXPENSE_FUND_PREFIXES)
@@ -172,20 +174,26 @@ def build_report(path,kind,*,prepared_expense=None,**options):
         out,groups,stats,sums,hidden=classify(kind,headers,rows,**options)
     path=Path(path)
     wb=Workbook();summary=wb.active;summary.title='처리요약'
-    note='선택 계좌의 재원이 등록된 규칙에 맞으면 통과로 표시합니다.' if kind=='expense' else '원본 매크로의 분류·집계 결과입니다. 계좌잔액 대사나 재원코드 정오 판정은 수행하지 않습니다.'
-    for row in [('항목','내용'),('업무',TITLES[kind]),('원본',path.name),('원본 행',row_count),('결과 행',sum(map(len,groups.values()))),('안내',note)]: append(summary,row)
-    if kind=='expense':
-        append(summary,('보기','전체보기' if options.get('show_all') else '확인 필요만'))
-        if options.get('account_unit') is not None:append(summary,('선택 회계단위',options['account_unit']))
-        append(summary,('선택 계좌 수',len(options.get('accounts',()))))
-        for account in options.get('accounts',()):
-            if account not in groups:append(summary,(f'결과 없음: {account}',0))
-    for name,count in stats.items():append(summary,(name,count))
+    if kind=='fund':
+        append(summary,('시트명','지출 건수','지출 합계','수입 건수','수입 합계'))
+        debit,credit=out.index('차변'),out.index('대변')
+    else:
+        note='재원이 비어 있거나 선택 계좌의 등록된 재원 규칙에 맞으면 통과로 표시합니다.' if kind=='expense' else '원본 매크로의 분류·집계 결과입니다. 계좌잔액 대사나 재원코드 정오 판정은 수행하지 않습니다.'
+        for row in [('항목','내용'),('업무',TITLES[kind]),('원본',path.name),('원본 행',row_count),('결과 행',sum(map(len,groups.values()))),('안내',note)]: append(summary,row)
+        if kind=='expense':
+            append(summary,('보기','전체보기' if options.get('show_all') else '확인 필요만'))
+            if options.get('account_unit') is not None:append(summary,('선택 회계단위',options['account_unit']))
+            append(summary,('선택 계좌 수',len(options.get('accounts',()))))
+            for account in options.get('accounts',()):
+                if account not in groups:append(summary,(f'결과 없음: {account}',0))
+        for name,count in stats.items():append(summary,(name,count))
     for name,values in groups.items():
         base=re.sub(r'[\\/*?:\[\]]','_',name).strip("'")[:31] or '계좌';candidate=base;n=2
         while candidate.lower() in {s.lower() for s in wb.sheetnames}:
             candidate=base[:31-len(str(n))-1]+'_'+str(n);n+=1
-        ws=wb.create_sheet(candidate);append(ws,out);append(summary,(name,len(values)))
+        ws=wb.create_sheet(candidate);append(ws,out)
+        if kind!='fund':append(summary,(name,len(values)))
+        debit_count=credit_count=debit_total=credit_total=0
         for row in values:
             row=list(row)
             for i,value in enumerate(row):
@@ -193,7 +201,14 @@ def build_report(path,kind,*,prepared_expense=None,**options):
                 elif out[i] in ('차변','대변') or (kind=='donation' and i in (6,8,9,10)):
                     number=amount(value)
                     if number is not None: row[i]=number
+            if kind=='fund':
+                if isinstance(row[debit],Decimal) and row[debit]:
+                    debit_count+=1;debit_total+=row[debit]
+                if isinstance(row[credit],Decimal) and row[credit]:
+                    credit_count+=1;credit_total+=row[credit]
             append(ws,row)
+        if kind=='fund':
+            append(summary,(ws.title,debit_count,debit_total,credit_count,credit_total))
         if values and sums:
             total=[None]*len(out)
             for col in sums:

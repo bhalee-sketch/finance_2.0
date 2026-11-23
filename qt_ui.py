@@ -211,7 +211,11 @@ class PackLayout(W.QLayout):
             elif side=='bottom':parcel=C.QRect(area.left(),area.bottom()-natural+1,area.width(),natural);area.setBottom(area.bottom()-natural)
             else:parcel=C.QRect(area.left(),area.top(),area.width(),natural);area.setTop(area.top()+natural)
             parcel.adjust(px[0],py[0],-px[1],-py[1]);w=parcel.width() if fill in ('x','both') else min(size.width(),parcel.width());h=parcel.height() if fill in ('y','both') else min(size.height(),parcel.height())
-            anchor=o.get('anchor','center');x=parcel.left() if 'w' in anchor else parcel.right()-w+1 if 'e' in anchor else parcel.center().x()-w//2;y=parcel.top() if 'n' in anchor else parcel.bottom()-h+1 if 's' in anchor else parcel.center().y()-h//2
+            anchor=o.get('anchor','center')
+            x=parcel.left() if 'w' in anchor else parcel.right()-w+1 if 'e' in anchor else parcel.center().x()-w//2
+            # Center ordinary left/right toolbar items regardless of their height.
+            vertical_anchor='' if horizontal and anchor=='center' else anchor
+            y=parcel.top() if 'n' in vertical_anchor else parcel.bottom()-h+1 if 's' in vertical_anchor else parcel.center().y()-h//2
             item.setGeometry(C.QRect(x,y,max(0,w),max(0,h)))
 
 class EventFilter(C.QObject):
@@ -397,7 +401,8 @@ class Widget:
         def update(*_):
             if not self.winfo_exists():return
             value=var.get();self._q.blockSignals(True)
-            if isinstance(self._q,W.QLineEdit):self._q.setText(str(value))
+            if isinstance(self._q,W.QLineEdit):
+                if self._q.text()!=str(value):self._q.setText(str(value))
             elif isinstance(self._q,W.QSpinBox):self._q.setValue(int(value or 0))
             elif isinstance(self._q,W.QComboBox):
                 index=self._q.findText(str(value))
@@ -742,6 +747,7 @@ class WorkflowTabBar(W.QTabBar):
         self._workflow_style.setParent(self)
         self.setStyle(self._workflow_style)
         self.setUsesScrollButtons(True)
+        self.setDrawBase(False)
         self.setFocusPolicy(C.Qt.FocusPolicy.StrongFocus)
 
 
@@ -1206,13 +1212,36 @@ class Dialogs:
 filedialog=Dialogs
 class Messages:
     @staticmethod
-    def showinfo(title,message,**kw):application();return W.QMessageBox.information(qwidget(kw.get('parent')),str(title),str(message))
+    def _show(icon,title,message,parent,buttons,default=None):
+        application()
+        from ui_theme import dark_titlebar
+        root=parent._root() if isinstance(parent,Widget) else _default_root
+        appearance=getattr(root,'_appearance',None)
+        owner=qwidget(parent)
+        if owner is None and root is not None and root.winfo_exists() and root._q.isVisible():
+            owner=root._q
+        dialog=W.QMessageBox(icon,str(title),str(message),buttons,owner)
+        if default is not None:dialog.setDefaultButton(default)
+        dark_titlebar(dialog,theme=appearance.theme if appearance else 'light')
+        return W.QMessageBox.StandardButton(dialog.exec())
+
     @staticmethod
-    def showerror(title,message,**kw):application();return W.QMessageBox.critical(qwidget(kw.get('parent')),str(title),str(message))
+    def showinfo(title,message,**kw):
+        return Messages._show(W.QMessageBox.Icon.Information,title,message,kw.get('parent'),W.QMessageBox.StandardButton.Ok)
+
     @staticmethod
-    def showwarning(title,message,**kw):application();return W.QMessageBox.warning(qwidget(kw.get('parent')),str(title),str(message))
+    def showerror(title,message,**kw):
+        return Messages._show(W.QMessageBox.Icon.Critical,title,message,kw.get('parent'),W.QMessageBox.StandardButton.Ok)
+
     @staticmethod
-    def askyesno(title,message,**kw):application();return W.QMessageBox.question(qwidget(kw.get('parent')),str(title),str(message),W.QMessageBox.StandardButton.Yes|W.QMessageBox.StandardButton.No,W.QMessageBox.StandardButton.No)==W.QMessageBox.StandardButton.Yes
+    def showwarning(title,message,**kw):
+        return Messages._show(W.QMessageBox.Icon.Warning,title,message,kw.get('parent'),W.QMessageBox.StandardButton.Ok)
+
+    @staticmethod
+    def askyesno(title,message,**kw):
+        buttons=W.QMessageBox.StandardButton
+        return Messages._show(W.QMessageBox.Icon.Question,title,message,kw.get('parent'),buttons.Yes|buttons.No,buttons.No)==buttons.Yes
+
     askokcancel=askyesno
 messagebox=Messages
 class Inputs:

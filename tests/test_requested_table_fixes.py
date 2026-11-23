@@ -30,11 +30,16 @@ class TableFixTests(unittest.TestCase):
     def test_deposit_dropdowns_search_selection_focus_and_return(self):
         with tempfile.TemporaryDirectory() as folder:
             opened=[]
+            from deposit_accounts import store_accounts
+            interest_db=Path(folder)/'settings'/'deposit plan'/'interest_accounts.sqlite3'
+            store_accounts(interest_db,{'00099':{'account':'000-99','bank':'테스트은행','name':'이자 계좌'}},'테스트')
             open_deposit(self.root,lambda:Path(folder),lambda w,x,y:w.geometry(f'{x}x{y}'),opened.append)
             window=next(w for w in self.root.children.values() if isinstance(w,q.Toplevel))
             self.wait(lambda:any('정기 75개' in label.text() for label in window._q.findChildren(q.W.QLabel)))
             boxes={b.accessibleName():b for b in window._q.findChildren(q.W.QComboBox) if b.accessibleName()}
-            expected={'출금할 정기예금 계좌':75,'원금 이체 계좌':42,'이자 이체 계좌':43}
+            check=next(w for w in window._q.findChildren(q.W.QCheckBox) if w.text()=='이자 별도 이체')
+            check.setChecked(True)
+            expected={'출금할 정기예금 계좌':75,'원금 이체 계좌':42,'이자 이체 계좌':1}
             for name,count in expected.items():
                 box=boxes[name];box.showPopup();self.assertEqual(box.count(),count);box.hidePopup()
                 box.setCurrentIndex(0);box.activated.emit(0)

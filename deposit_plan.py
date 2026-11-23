@@ -72,9 +72,10 @@ def read_catalog(path, fixed):
     return result
 
 
-def plan_entry(fixed, regular, fixed_key, destination, interest_destination, interest, corporate_tax, local_tax, processing_date, year, month):
+def plan_entry(fixed, regular, fixed_key, destination, interest_destination, interest, corporate_tax, local_tax, processing_date, year, month, *, interest_accounts=None):
     y,m=period(year,month)
-    if fixed_key not in fixed or destination not in regular or (interest_destination and interest_destination not in regular):raise ValueError('계좌 목록에서 출금·이체 계좌를 선택하세요.')
+    interest_accounts=regular if interest_accounts is None else interest_accounts
+    if fixed_key not in fixed or destination not in regular or (interest_destination and interest_destination not in interest_accounts):raise ValueError('계좌 목록에서 출금·이체 계좌를 선택하세요.')
     try:d=date.fromisoformat(processing_date)
     except (ValueError,TypeError):raise ValueError('처리예정일자를 YYYY-MM-DD로 입력하세요.')
     if (d.year,d.month)!=(y,m):raise ValueError('처리예정일자는 선택한 연도·월 안에 있어야 합니다.')
@@ -84,7 +85,7 @@ def plan_entry(fixed, regular, fixed_key, destination, interest_destination, int
         values.append(number(raw))
     gross,corp,local=values
     if min(values)<0 or corp+local>gross:raise ValueError('금액은 음수일 수 없으며 세금 합계가 세전이자를 넘을 수 없습니다.')
-    return dict(fixed=fixed[fixed_key].copy(),destination=regular[destination].copy(),interest_destination=regular[interest_destination].copy() if interest_destination and interest_destination!=destination else None,gross=gross,corp=corp,local=local,date=d)
+    return dict(fixed=fixed[fixed_key].copy(),destination=regular[destination].copy(),interest_destination=interest_accounts[interest_destination].copy() if interest_destination and interest_destination!=destination else None,gross=gross,corp=corp,local=local,date=d)
 
 
 def load_drafts(path):

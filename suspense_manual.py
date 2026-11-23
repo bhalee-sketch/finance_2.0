@@ -87,7 +87,6 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
     from qt_ui import ttk,messagebox
     from statement_ui import table
     from ui_theme import dark_titlebar
-    from pathlib import Path
     dialog=tk.Toplevel(parent,show_on_create=False);dialog.title('매칭하기');dialog.transient(parent);dark_titlebar(dialog)
     screen=parent._q.screen().availableGeometry()
     center(dialog,min(1180,screen.width()-40),min(680,screen.height()-60))
@@ -149,7 +148,7 @@ def open_match(parent,result,settings,center,on_save,preselected=()):
                 holder=tk.W.QWidget();layout=tk.W.QHBoxLayout(holder);layout.setContentsMargins(0,0,0,0)
                 check=tk.W.QCheckBox();check.setAccessibleName('거래 선택 '+identity)
                 check.setFixedSize(20,20)
-                check.setStyleSheet('QCheckBox {background:transparent;padding:0;} QCheckBox::indicator {width:14px;height:14px;border:1px solid #91859F;border-radius:2px;background:#FFFFFF;} QCheckBox::indicator:checked {background:#7651AD;image:url("'+(Path(__file__).resolve().parent/'assets'/'check.svg').as_posix()+'");}')
+                check.setStyleSheet('QCheckBox {background:transparent;padding:0;}')
                 check.setChecked(identity in selected);layout.addWidget(check,0,tk.C.Qt.AlignmentFlag.AlignCenter)
                 def toggle(checked,identity=identity):
                     selected.add(identity) if checked else selected.discard(identity)

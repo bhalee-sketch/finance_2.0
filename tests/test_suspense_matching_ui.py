@@ -38,7 +38,9 @@ class SuspenseMatchingTests(unittest.TestCase):
                 self.assertEqual(tree._q.horizontalScrollBarPolicy(),q.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
                 check=tree._q.findChild(q.W.QCheckBox)
                 self.assertIsNotNone(check);check.setChecked(True)
-                self.assertIn('14px',check.styleSheet())
+                self.assertNotIn('QCheckBox::indicator',check.styleSheet())
+                from ui_theme import qt_stylesheet
+                self.assertIn('QCheckBox::indicator { width:14px; height:14px; border:1px',qt_stylesheet())
             self.assertTrue(match.isEnabled())
             self.assertIn('매칭 후 잔액 50원',dialog._match_totals.get())
             self.assertLess(match.mapToGlobal(q.C.QPoint()).y(),dialog._match_trees['D']._q.mapToGlobal(q.C.QPoint()).y())

@@ -44,8 +44,9 @@ class CheckList(ttk.Frame):
 
 class CenteredCheckDelegate(tk.W.QStyledItemDelegate):
     """Draw a native checkbox over the table's regular row background."""
-    def __init__(self,view):
+    def __init__(self,view,*,centered=True):
         super().__init__(view)
+        self.centered=centered
         self.checkbox=tk.W.QCheckBox(view)
         self.checkbox.hide()
 
@@ -62,6 +63,7 @@ class CenteredCheckDelegate(tk.W.QStyledItemDelegate):
         size=18
         indicator.rect=tk.C.QRect(0,0,size,size)
         indicator.rect.moveCenter(option.rect.center())
+        if not self.centered:indicator.rect.moveLeft(option.rect.left()+4)
         self.checkbox.style().drawPrimitive(tk.W.QStyle.PrimitiveElement.PE_IndicatorCheckBox,indicator,painter,self.checkbox)
 
 
@@ -70,7 +72,7 @@ def tree_checks(tree,default=False,*,centered=False):
     chosen=set();original_insert=tree.insert
     tree.configure(show='tree headings',selectmode='browse')
     tree.heading('#0',text='선택');tree.column('#0',width=48,minwidth=48,stretch=False,anchor='center' if centered else 'w')
-    if centered:tree._q.setItemDelegateForColumn(0,CenteredCheckDelegate(tree._q))
+    tree._q.setItemDelegateForColumn(0,CenteredCheckDelegate(tree._q,centered=centered))
     def insert(*args,**kwargs):
         kwargs['text']='☑' if default else '☐'
         iid=original_insert(*args,**kwargs)

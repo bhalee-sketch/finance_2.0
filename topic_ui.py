@@ -13,10 +13,12 @@ from finance_ui import target_file,saved
 
 def install_topics(notebook,window,jobs,context,display_table,open_file):
     states={}
-    for key,title in [('ratio','수입 대비 지출'),('fund','기금사용현황'),('grants','국고보조금 현황')]:
+    for key,title in [('ratio','수입 대비 지출'),('fund','기금 현황'),('grants','국고보조금 현황')]:
         frame=ttk.Frame(notebook,padding=8);notebook.add(frame,text=title)
         controls=ttk.Frame(frame);controls.pack(fill='x')
-        note=tk.StringVar();ttk.Label(frame,textvariable=note,style='Muted.TLabel',wraplength=1200).pack(fill='x',pady=5)
+        note=tk.StringVar()
+        if key!='fund':
+            ttk.Label(frame,textvariable=note,style='Muted.TLabel',wraplength=1200).pack(fill='x',pady=5)
         plot=ttk.LabelFrame(frame,text=title+(' · %' if key=='ratio' else ' · 백만원'),padding=8,style='Dashboard.TLabelframe');plot.pack(fill='both',expand=True)
         canvas=tk.Canvas(plot,bg='#192131',height=160,highlightthickness=0);canvas.pack(fill='both',expand=True)
         table_frame=ttk.LabelFrame(frame,text='상세 내역 · 원',padding=5,style='Dashboard.TLabelframe');
@@ -159,7 +161,7 @@ def install_topics(notebook,window,jobs,context,display_table,open_file):
     def export(key):
         s=states[key]
         if not s['rows']:messagebox.showinfo('저장','먼저 자료를 불러오세요.',parent=window);return
-        path=target_file(window,None,{'ratio':'수입 대비 지출','fund':'기금사용현황','grants':'국고보조금 현황'}[key])
+        path=target_file(window,None,{'ratio':'수입 대비 지출','fund':'기금 현황','grants':'국고보조금 현황'}[key])
         if not path:return
         headers=list(s['headers']);rows=[list(r) for r in s['rows']];note=s['note'].get();sources=list(s['sources'])
         fund_bars=key=='fund' and s['graph'].get()=='막대'

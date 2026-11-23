@@ -31,12 +31,13 @@ class MacroPreviewTests(TestCase):
         }
         accounts = [f'{name}(하나{index:05})' for index, name in enumerate(examples)]
         rows = [[account, fund.replace(' ', '\xa0')] for account, fund in zip(accounts, examples.values())]
-        rows.extend([[accounts[1], '(지정)장학 기부금'], [accounts[-1], None]])
+        rows.extend([[accounts[1], '(지정)장학 기부금'], [accounts[-1], None], [accounts[0], ' \t']])
         headers = ['예적금명', '재원']
         _, exceptions, stats, _, _ = classify('expense', headers, rows, accounts=accounts)
-        self.assertEqual(list(exceptions), [accounts[1], accounts[-1]])
-        self.assertEqual(stats['통과'], 11)
-        self.assertEqual(stats['확인 필요'], 2)
+        self.assertEqual(list(exceptions), [accounts[1]])
+        self.assertEqual(stats['통과'], 13)
+        self.assertEqual(stats['재원 없음'], 2)
+        self.assertEqual(stats['확인 필요'], 1)
         _, full, _, _, _ = classify('expense', headers, rows, accounts=accounts, show_all=True)
         self.assertEqual(list(full), accounts)
         for account in accounts:
@@ -55,7 +56,9 @@ class MacroPreviewTests(TestCase):
                         '테스트계좌', '32,100'),
             'donation': (donation_headers, [donation], '지정기부금', '98,765'),
             'fund': (['재원', '관', '목', '차변', '대변'],
-                     [['임의 연구', '연구비', '재료비', 65400, 0], ['임의 연구', '연구비', '미지급금', 9000, 0]],
+                     [['임의 연구', '연구비', '재료비', 65400, 0], ['임의 연구', '연구비', '미지급금', 9000, 0],
+                      ['임의 건축', '연구비', '재료비', None, '12,000'],
+                      ['임의 건축', '연구비', '재료비', 0, '(2,000)']],
                      '임의_연구', '65,400'),
         }
         for kind, (headers, rows, sheet_name, expected) in fixtures.items():
@@ -82,7 +85,9 @@ class MacroPreviewTests(TestCase):
                             self.buttons(dialog)['선택 적용'].click()
                         elif kind == 'fund':
                             check = window._q.findChild(q.W.QCheckBox)
-                            self.assertIn('border:2px', check.styleSheet())
+                            self.assertNotIn('QCheckBox::indicator',check.styleSheet())
+                            from ui_theme import qt_stylesheet
+                            self.assertIn('QCheckBox::indicator { width:14px; height:14px; border:1px',qt_stylesheet())
                             check.click()
                         generate, excel = buttons['결과 생성'], buttons['엑셀 열기']
                         self.assertIs(generate.parentWidget(), excel.parentWidget())
@@ -94,7 +99,13 @@ class MacroPreviewTests(TestCase):
                         self.assertFalse((desktop/'검증결과').exists())
                         tabs = window._q.findChild(q.W.QTabBar)
                         self.assertEqual(tabs.tabText(tabs.currentIndex()), sheet_name)
-                        model = window._q.findChild(q.W.QTableView).model()
+                        view = window._q.findChild(q.W.QTableView)
+                        model = view.model()
+                        if kind == 'expense':
+                            self.assertEqual(view.horizontalScrollBarPolicy(),q.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                            for width in (900,1200):
+                                window._q.resize(width,650)
+                                self.wait_until(lambda: view.horizontalHeader().length()==view.viewport().width(),window)
                         self.assertIn(expected, [model.index(0, i).data() for i in range(model.columnCount())])
                         excel.click()
                         self.wait_until(lambda: opener.called or error.called, window)
@@ -105,6 +116,11 @@ class MacroPreviewTests(TestCase):
                             self.assertIn(sheet_name, result.sheetnames)
                             if kind == 'fund':
                                 self.assertEqual(result[sheet_name]['D3'].value, 65400)
+                                self.assertEqual(list(result['처리요약'].values),[
+                                    ('시트명','지출 건수','지출 합계','수입 건수','수입 합계'),
+                                    ('임의_연구',1,65400,0,0),('임의_건축',0,0,2,10000),
+                                    ('임의_장학',0,0,0,0),('임의_기타',0,0,0,0),
+                                ])
                         finally:
                             result.close()
                         if kind == 'expense':
