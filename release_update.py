@@ -141,6 +141,37 @@ def latest_setup(current):
     return latest
 
 
+def download_setup(folder, setup):
+    """Download and verify the installer before making it available to the exit handler."""
+    version,url=setup
+    filename=f'WorkSpace-Setup-{version}-x64.exe'
+    if url!=f'https://github.com/{SETUP_REPOSITORY}/releases/download/v{version}/{filename}':
+        raise UpdateError('지원하지 않는 설치 파일 주소입니다.')
+    opener=urllib.request.build_opener(GithubRedirect())
+    with opener.open(url+'.sha256',timeout=30) as response:
+        checksum=response.read(512).decode('ascii').strip().split()
+    if len(checksum)!=2 or not re.fullmatch(r'[0-9a-f]{64}',checksum[0]) or checksum[1]!=filename:
+        raise UpdateError('설치 파일 검증 정보가 올바르지 않습니다.')
+
+    downloads=Path(folder)/'downloads'
+    downloads.mkdir(exist_ok=True)
+    target=downloads/filename
+    part=target.with_suffix('.part')
+    digest=hashlib.sha256();received=0
+    try:
+        with opener.open(url,timeout=30) as response,part.open('wb') as output:
+            while block:=response.read(1024*1024):
+                received+=len(block)
+                if received>MAX_ARCHIVE:raise UpdateError('설치 파일 크기 제한을 초과했습니다.')
+                digest.update(block)
+                output.write(block)
+        if digest.hexdigest()!=checksum[0]:raise UpdateError('설치 파일 검증에 실패했습니다.')
+        part.replace(target)
+    finally:
+        part.unlink(missing_ok=True)
+    return target
+
+
 def extract_release(archive,destination):
     destination=Path(destination);seen=set();total=0
     with zipfile.ZipFile(archive) as bundle:

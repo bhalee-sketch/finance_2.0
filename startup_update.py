@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 import qt_ui as tk
-from release_update import GithubClient,GithubAccessError,install_root,latest_setup,prepare_release,release_metadata,UpdateError
+from release_update import GithubClient,GithubAccessError,download_setup,install_root,latest_setup,prepare_release,release_metadata,UpdateError
 from token_store import load_update_token as load_token
 from version_status import version_status
 
@@ -29,7 +29,7 @@ def check_on_start(root):
     if channel=='manual':
         status.set(f'현재 {current} · 설치 파일로 업데이트');return
     if channel=='setup':
-        check_for_setup(root,current,status);return
+        check_for_setup(root,folder,current,status);return
     if (folder/'pending.json').exists():
         status.set(f'현재 {current} · 업데이트 적용 확인 중')
         waits=getattr(root,'_update_pending_waits',0)+1;root._update_pending_waits=waits
@@ -93,29 +93,49 @@ def check_on_start(root):
     root.after(100,poll)
 
 
-def check_for_setup(root,current,status):
+def check_for_setup(root,folder,current,status):
     status.set(f'현재 {current} · 최신 버전 확인 중…')
-    messages=queue.Queue(maxsize=1)
+    messages=queue.Queue()
+    def apply_on_exit(event):
+        installer=getattr(root,'_prepared_setup',None)
+        if event.widget is not root or installer is None:return
+        # NSIS requires /D last and unquoted, including when the path contains spaces.
+        command=subprocess.list2cmdline([str(installer),'/S',f'/WAITPID={os.getpid()}'])
+        try:
+            subprocess.Popen(command+' /D='+str(folder),executable=str(installer),cwd=folder)
+        except OSError as exc:
+            print(f'Could not start installer: {exc}',file=sys.stderr)
+    root.bind('<Destroy>',apply_on_exit,add='+')
 
     def worker():
         try:
-            messages.put(('ready',latest_setup(current)))
+            for path in (folder/'downloads').glob('WorkSpace-Setup-*-x64.*'):
+                try:path.unlink()
+                except OSError:pass
+            setup=latest_setup(current)
+            if setup is None:
+                messages.put(('latest',None));return
+            messages.put(('downloading',setup[0]))
+            messages.put(('prepared',(setup[0],download_setup(folder,setup))))
         except (OSError,ValueError,TypeError,KeyError):
             messages.put(('error',None))
 
     def poll():
         try:
-            kind,setup=messages.get_nowait()
+            kind,value=messages.get_nowait()
         except queue.Empty:
             root.after(150,poll)
             return
-        if kind=='error':
-            status.set(f'현재 {current} · 최신 버전 확인 불가')
-        elif setup:
-            version,root._setup_download_url=setup
-            status.set(f'현재 {current} · 새 버전 {version}')
-        else:
+        if kind=='downloading':
+            status.set(f'새 버전 {value} · 다운로드 및 검증 중…')
+            root.after(150,poll)
+        elif kind=='prepared':
+            version,root._prepared_setup=value
+            status.set(f'새 버전 {version} · 프로그램 종료 시 자동 설치')
+        elif kind=='latest':
             status.set(f'현재 {current} · 최신 버전입니다.')
+        else:
+            status.set(f'현재 {current} · 업데이트 확인 또는 다운로드 불가')
 
     threading.Thread(target=worker,daemon=True).start()
     root.after(150,poll)

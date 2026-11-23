@@ -4,6 +4,7 @@ Target amd64-unicode
 !endif
 !include "MUI2.nsh"
 !include "x64.nsh"
+!include "FileFunc.nsh"
 
 Name "Work Space ${VERSION}"
 OutFile "${SETUP_FILE}"
@@ -30,9 +31,28 @@ Function .onInit
     Abort
   ${EndIf}
   SetRegView 64
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\WorkSpaceInstalling") p.r1 ?e'
+  Pop $2
+  StrCmp $1 0 blocked
+  StrCmp $2 183 blocked
+
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/WAITPID=" $0
+  IfErrors check_running
+  System::Call 'kernel32::OpenProcess(i 0x100000, i 0, i r0) p.r1'
+  StrCmp $1 0 check_running
+  System::Call 'kernel32::WaitForSingleObject(p r1, i 60000) i.r2'
+  System::Call 'kernel32::CloseHandle(p r1)'
+  StrCmp $2 0 check_running blocked
+
+  check_running:
   System::Call 'kernel32::OpenMutexW(i 0x100000, i 0, w "Local\WorkSpaceRunning") p.r0'
   StrCmp $0 0 done
   System::Call 'kernel32::CloseHandle(p r0)'
+  blocked:
+  SetErrorLevel 1
+  IfSilent +2
   MessageBox MB_ICONSTOP "Work Space를 종료한 뒤 설치해 주세요."
   Abort
   done:
@@ -66,6 +86,9 @@ Section "Uninstall"
   Delete "$INSTDIR\WorkSpace.exe"
   Delete "$INSTDIR\current.json"
   Delete "$INSTDIR\Uninstall.exe"
+  Delete "$INSTDIR\downloads\WorkSpace-Setup-*-x64.exe"
+  Delete "$INSTDIR\downloads\WorkSpace-Setup-*-x64.part"
+  RMDir "$INSTDIR\downloads"
   RMDir /r "$INSTDIR\versions\${VERSION}"
   RMDir "$INSTDIR\versions"
   RMDir "$INSTDIR"

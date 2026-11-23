@@ -1,6 +1,10 @@
+from hashlib import sha256
+from io import BytesIO
 from unittest.mock import patch
 
-from release_update import SETUP_API, latest_setup
+import pytest
+
+from release_update import SETUP_API, UpdateError, download_setup, latest_setup
 
 
 def release(version, *, prerelease=False, draft=False, checksum=True, state='uploaded'):
@@ -29,3 +33,19 @@ def test_latest_setup_selects_newest_complete_stable_release():
 def test_latest_setup_ignores_installed_and_older_releases():
     with patch('release_update.GithubClient.json', return_value=[release('3.3.4'), release('3.3.3')]):
         assert latest_setup('3.3.4') is None
+
+@pytest.mark.parametrize('valid', [True, False])
+def test_setup_download_is_exposed_only_after_hash_verification(tmp_path, valid):
+    filename = 'WorkSpace-Setup-3.3.5-x64.exe'
+    url = 'https://github.com/bhalee-sketch/finance_2.0/releases/download/v3.3.5/' + filename
+    payload = b'installer data'
+    digest = sha256(payload if valid else b'other').hexdigest()
+    responses = [BytesIO(f'{digest}  {filename}\r\n'.encode('ascii')), BytesIO(payload)]
+    with patch('release_update.urllib.request.build_opener') as opener:
+        opener.return_value.open.side_effect = responses
+        if valid:
+            assert download_setup(tmp_path, ('3.3.5', url)).read_bytes() == payload
+        else:
+            with pytest.raises(UpdateError):
+                download_setup(tmp_path, ('3.3.5', url))
+    assert sorted(file.name for file in (tmp_path / 'downloads').iterdir()) == ([filename] if valid else [])

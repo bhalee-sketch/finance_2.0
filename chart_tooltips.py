@@ -14,10 +14,14 @@ def show_tip(canvas,event,text):
     # Leave room for the visible cursor, including its tail and the tip padding.
     gap_x=32;gap_y=36
     x=canvas.canvasx(event.x)+gap_x;y=canvas.canvasy(event.y)+gap_y
-    item=canvas.create_text(x,y,text=text,anchor='nw',justify='left',width=max(100,min(360,width-24)),
+    item=canvas.create_text(x,y,text=text,anchor='nw',justify='left',
                             fill='#EDF2FA',font=('맑은 고딕',9),tags='tip',state='disabled')
     bounds=canvas.bbox(item)
     if not isinstance(bounds,(tuple,list)) or len(bounds)!=4:return
+    max_width=max(1,width-24)
+    if bounds[2]-bounds[0]>max_width:
+        canvas.itemconfigure(item,width=max_width)
+        bounds=canvas.bbox(item)
     tw=bounds[2]-bounds[0];th=bounds[3]-bounds[1]
     if x+tw+8>left+width:x=max(left+8,canvas.canvasx(event.x)-tw-gap_x)
     if y+th+8>top+height:y=max(top+8,canvas.canvasy(event.y)-th-gap_y)

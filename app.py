@@ -8,17 +8,8 @@ import threading
 import queue
 import qt_ui as tk
 from qt_ui import ttk, filedialog, messagebox
-from verifier import PERIODS, run, year_folder, create_year_folders
 from ui_theme import apply_theme, dark_titlebar
-from deposit_ui import open_deposit
-from loan_ui import open_loans
-from transfer_ui import open_transfer
-from macro_ui import open_macro
 from launcher import Launcher
-from statement_ui import open_statement_view,open_statement_verify
-from finance_ui import open_analysis,open_ledger,open_merge
-from audit_ui import open_audit
-from closing_review_ui import open_closing_review
 
 def open_result_file(path):
     path = str(Path(path).resolve(strict=True))
@@ -50,6 +41,7 @@ def main():
     from app_version import application_title
     root.title(application_title()); apply_theme(root)
     def open_tax():
+        from verifier import PERIODS, run, year_folder, create_year_folders
         window=tk.Toplevel(root); window.title('세금계산서 검증'); center_window(window,1120,760); dark_titlebar(window)
         frame=ttk.Frame(window,padding=24); frame.pack(fill='both',expand=True)
         path=tk.StringVar(value=str(desktop()/'settings'/'taxinvoice'))
@@ -225,37 +217,85 @@ def main():
     def suspense_view():
         from suspense_ui import open_suspense
         open_suspense(root,desktop,center_window,open_result_file)
-    from appendix_view import open_appendix_view
+
+    def deposit_view():
+        from deposit_ui import open_deposit
+        open_deposit(root,desktop,center_window,open_result_file)
+
+    def loans_view():
+        from loan_ui import open_loans
+        open_loans(root,center_window,open_result_file)
+
+    def transfer_view():
+        from transfer_ui import open_transfer
+        open_transfer(root,desktop,center_window,open_result_file)
+
+    def macro_view(kind):
+        from macro_ui import open_macro
+        open_macro(root,desktop,center_window,open_result_file,kind)
+
+    def statement_view():
+        from statement_ui import open_statement_view
+        open_statement_view(root,desktop,center_window,open_result_file)
+
+    def statement_verify_view(include_appendices=False):
+        from statement_ui import open_statement_verify
+        open_statement_verify(root,desktop,center_window,open_result_file,include_appendices)
+
+    def analysis_view():
+        from finance_ui import open_analysis
+        open_analysis(root,desktop,center_window,open_result_file)
+
+    def ledger_view():
+        from finance_ui import open_ledger
+        open_ledger(root,desktop,center_window,open_result_file)
+
+    def merge_view(is_ledger=False):
+        from finance_ui import open_merge
+        open_merge(root,desktop,center_window,open_result_file,is_ledger)
+
+    def audit_view():
+        from audit_ui import open_audit
+        open_audit(root,desktop,center_window,open_result_file)
+
+    def closing_review_view():
+        from closing_review_ui import open_closing_review
+        open_closing_review(root,desktop,center_window)
+
+    def appendix_view():
+        from appendix_view import open_appendix_view
+        open_appendix_view(root,center_window,open_result_file)
+
     groups=[
         ('1. 재무제표',[
-            ('재무제표 조회',lambda:open_statement_view(root,desktop,center_window,open_result_file)),
-            ('부속명세서 조회',lambda:open_appendix_view(root,center_window,open_result_file)),
-            ('계정별원장 조회',lambda:open_ledger(root,desktop,center_window,open_result_file)),
-            ('합산재무제표 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file)),
-            ('재무제표/부속명세서 검증',lambda:open_statement_verify(root,desktop,center_window,open_result_file,True)),
+            ('재무제표 조회',statement_view),
+            ('부속명세서 조회',appendix_view),
+            ('계정별원장 조회',ledger_view),
+            ('합산재무제표 검증',statement_verify_view),
+            ('재무제표/부속명세서 검증',lambda:statement_verify_view(True)),
         ]),
         ('2. 분석도구',[
-            ('재무분석',lambda:open_analysis(root,desktop,center_window,open_result_file)),
-            ('결산검토',lambda:open_closing_review(root,desktop,center_window)),
-            ('계정과목 검토',lambda:open_audit(root,desktop,center_window,open_result_file)),
-            ('차입금관리',lambda:open_loans(root,center_window,open_result_file)),
+            ('재무분석',analysis_view),
+            ('결산검토',closing_review_view),
+            ('계정과목 검토',audit_view),
+            ('차입금관리',loans_view),
             ('임대사항',rental_view),
         ]),
         ('3. 업무도구',[
             ('세금계산서 검증',open_tax),
             ('예금시재 검증',lambda:open_account(root)),
-            ('정기예금 해지계획표',lambda:open_deposit(root,desktop,center_window,open_result_file)),
-            ('자금이체 문구 생성',lambda:open_transfer(root,desktop,center_window,open_result_file)),
+            ('정기예금 해지계획표',deposit_view),
+            ('자금이체 문구 생성',transfer_view),
             ('가수금 정산검증',suspense_view),
         ]),
         ('4. 재원·계좌 검증',[
-            ('지출계좌별 재원코드',lambda:open_macro(root,desktop,center_window,open_result_file,'expense')),
-            ('기부금계좌별 잔액',lambda:open_macro(root,desktop,center_window,open_result_file,'donation')),
-            ('임의기금 재원별 지출내역',lambda:open_macro(root,desktop,center_window,open_result_file,'fund')),
+            ('지출계좌별 재원코드',lambda:macro_view('expense')),
+            ('기부금계좌별 잔액',lambda:macro_view('donation')),
+            ('임의기금 재원별 지출내역',lambda:macro_view('fund')),
         ]),
         ('5. 통합 작업',[
-            ('원장통합',lambda:open_merge(root,desktop,center_window,open_result_file,True)),
-            ('재무제표 Excel 통합',lambda:open_merge(root,desktop,center_window,open_result_file)),
+            ('원장통합',lambda:merge_view(True)),
+            ('재무제표 Excel 통합',merge_view),
         ]),
     ]
     from app_profile import menu_groups,settings_path

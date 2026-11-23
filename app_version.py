@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from release_update import read_json,version_key
 
-SOURCE_VERSION='3.3.4'
+SOURCE_VERSION='3.3.5'
 
 
 def current_version():

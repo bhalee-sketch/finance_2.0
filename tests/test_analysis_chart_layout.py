@@ -3,9 +3,11 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from decimal import Decimal
 import unittest
+from types import SimpleNamespace
 
 import qt_ui as q
 from analysis_charts import donut, stacked_years
+from chart_tooltips import show_tip
 
 
 class AnalysisChartLayoutTests(unittest.TestCase):
@@ -31,6 +33,16 @@ class AnalysisChartLayoutTests(unittest.TestCase):
                 self.assertLess(box[3], bounds[3])
             total, = self.labels(canvas, '100.0%')
             self.assertLess(canvas.bbox(total)[3], 52)
+        finally:
+            root.destroy()
+
+    def test_hover_box_fits_its_content(self):
+        root = q.Tk()
+        try:
+            canvas = q.Canvas(root, width=950, height=500)
+            show_tip(canvas, SimpleNamespace(x=100, y=100), '보수\n29,631백만원 · 25.75%\n29,630,981,807원')
+            tip = canvas.bbox('tip')
+            self.assertLess(tip[2]-tip[0], 230)
         finally:
             root.destroy()
 

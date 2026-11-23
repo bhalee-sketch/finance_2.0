@@ -61,8 +61,17 @@ jobs:
           "WORKSPACE_SETUP=$setup" >> $env:GITHUB_ENV
       - name: Install and verify the desktop application
         run: |
-          $install = Join-Path $env:RUNNER_TEMP "workspace-installed"
-          $setup = Start-Process -FilePath $env:WORKSPACE_SETUP -ArgumentList "/S", "/D=$install" -PassThru
+          $install = Join-Path $env:RUNNER_TEMP "workspace installed"
+          $blocker = Start-Process -FilePath ping.exe -ArgumentList "-t", "127.0.0.1" -WindowStyle Hidden -PassThru
+          try {
+            $setup = Start-Process -FilePath $env:WORKSPACE_SETUP -ArgumentList "/S /WAITPID=$($blocker.Id) /D=$install" -PassThru
+            Start-Sleep -Seconds 3
+            if ($setup.HasExited -or (Test-Path "$install\current.json")) {
+              throw "Setup did not wait for the previous process to exit."
+            }
+          } finally {
+            if (!$blocker.HasExited) { Stop-Process -Id $blocker.Id -Force }
+          }
           if (!$setup.WaitForExit(120000) -or $setup.ExitCode -ne 0) { throw "Setup did not finish successfully." }
           $folder = Join-Path $install "versions\$env:WORKSPACE_VERSION"
           if (!(Test-Path "$install\WorkSpace.exe") -or !(Test-Path "$install\Uninstall.exe")) {
@@ -84,8 +93,24 @@ jobs:
             python -c "import sys,sqlite3,pathlib; p=pathlib.Path(sys.argv[1]); db=sqlite3.connect((p/'ledgers'/'ledgers.sqlite3').as_uri()+'?mode=ro',uri=True); assert db.execute('SELECT count(*) FROM entries').fetchone()[0]>0; assert (p/'fund'/'statements.json').is_file(); assert (p/'govsubsidy'/'statements.json').is_file()" $data
             if ($LASTEXITCODE -ne 0) { throw "Installed runtime data verification failed." }
           } finally {
-            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+            if (!$process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+              $process.WaitForExit()
+            }
             Remove-Item Env:WORKSPACE_READY_FILE
+          }
+          $launcher = Start-Process -FilePath "$install\WorkSpace.exe" -WorkingDirectory $install -PassThru
+          try {
+            if (!$launcher.WaitForExit(70000) -or $launcher.ExitCode -ne 0) {
+              throw "The installed WorkSpace launcher did not finish startup."
+            }
+            $started = Get-Process WorkSpaceApp -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -eq "$folder\WorkSpaceApp.exe" }
+            if (!$started) { throw "The installed launcher did not start WorkSpaceApp." }
+          } finally {
+            if (!$launcher.HasExited) { Stop-Process -Id $launcher.Id -Force }
+            Get-Process WorkSpaceApp -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -eq "$folder\WorkSpaceApp.exe" } | Stop-Process -Force
           }
       - name: Publish Setup and checksum
         env:
@@ -94,5 +119,5 @@ jobs:
           $hash = (Get-FileHash $env:WORKSPACE_SETUP -Algorithm SHA256).Hash.ToLower()
           $checksum = "$env:WORKSPACE_SETUP.sha256"
           "$hash  $(Split-Path $env:WORKSPACE_SETUP -Leaf)" | Set-Content -Encoding ascii $checksum
-          gh release create "v$env:WORKSPACE_VERSION" "$env:WORKSPACE_SETUP" "$checksum" --target $env:GITHUB_SHA --title "Work Space $env:WORKSPACE_VERSION" --notes "Windows x64 Setup. Python 3.12 is bundled. This installer is unsigned. Work Space checks for new versions at startup and links to their Setup download."
+          gh release create "v$env:WORKSPACE_VERSION" "$env:WORKSPACE_SETUP" "$checksum" --target $env:GITHUB_SHA --title "Work Space $env:WORKSPACE_VERSION" --notes "Windows x64 Setup. Python 3.12 is bundled. This installer is unsigned. Work Space downloads and verifies new releases at startup and installs them on exit."
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
