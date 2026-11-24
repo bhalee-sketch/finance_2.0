@@ -61,10 +61,12 @@ def current_state(root):
     if state.get('previous'):version_key(state['previous'])
     return state
 
+GITHUB_HOSTS = ('api.github.com', 'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com')
+
 class GithubRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
         parsed=urllib.parse.urlparse(newurl)
-        if parsed.scheme!='https' or parsed.hostname not in ('api.github.com','github.com','release-assets.githubusercontent.com','objects.githubusercontent.com'):
+        if parsed.scheme!='https' or parsed.hostname not in GITHUB_HOSTS:
             raise UpdateError('허용되지 않은 다운로드 주소입니다.')
         redirected=super().redirect_request(req,fp,code,msg,headers,newurl)
         if redirected is not None and parsed.hostname!='api.github.com':redirected.remove_header('Authorization')
@@ -119,11 +121,9 @@ class GithubClient:
                 output.write(block);digest.update(block);progress(round(received/manifest['size']*100))
         if received!=manifest['size'] or digest.hexdigest()!=manifest['sha256']:raise UpdateError('다운로드 검증에 실패했습니다. 기존 버전은 유지됩니다.')
 
-def latest_setup(current):
+def latest_setup(current, releases):
     """Find the newest stable release that has a published Windows Setup asset."""
     current_key=version_key(current)
-    client=GithubClient(api=SETUP_API)
-    releases=client.json(SETUP_API+'/releases?per_page=30')
     latest=None
     best_key=current_key
     for release in releases:
@@ -139,41 +139,6 @@ def latest_setup(current):
             best_key=key
             latest=version,f'https://github.com/{SETUP_REPOSITORY}/releases/download/{tag}/{filename}'
     return latest
-
-
-def download_setup(folder, setup, progress=lambda percent:None):
-    """Download and verify the installer before making it available for installation."""
-    version,url=setup
-    version_key(version)
-    filename=f'WorkSpace-Setup-{version}-x64.exe'
-    if url!=f'https://github.com/{SETUP_REPOSITORY}/releases/download/v{version}/{filename}':
-        raise UpdateError('지원하지 않는 설치 파일 주소입니다.')
-    opener=urllib.request.build_opener(GithubRedirect())
-    with opener.open(url+'.sha256',timeout=30) as response:
-        checksum=response.read(512).decode('ascii').strip().split()
-    if len(checksum)!=2 or not re.fullmatch(r'[0-9a-f]{64}',checksum[0]) or checksum[1]!=filename:
-        raise UpdateError('설치 파일 검증 정보가 올바르지 않습니다.')
-
-    downloads=Path(folder)/'downloads'
-    downloads.mkdir(exist_ok=True)
-    target=downloads/filename
-    part=target.with_suffix('.part')
-    digest=hashlib.sha256();received=0
-    try:
-        with opener.open(url,timeout=30) as response,part.open('wb') as output:
-            length=response.headers.get('Content-Length','') if hasattr(response,'headers') else ''
-            total=int(length) if length.isascii() and length.isdecimal() else 0
-            while block:=response.read(1024*1024):
-                received+=len(block)
-                if received>MAX_ARCHIVE:raise UpdateError('설치 파일 크기 제한을 초과했습니다.')
-                digest.update(block)
-                output.write(block)
-                if total:progress(min(99,received*100//total))
-        if digest.hexdigest()!=checksum[0]:raise UpdateError('설치 파일 검증에 실패했습니다.')
-        part.replace(target)
-    finally:
-        part.unlink(missing_ok=True)
-    return target
 
 
 def extract_release(archive,destination):

@@ -6,7 +6,7 @@ import sys
 import time
 
 
-def verify_setup(installer, folder):
+def verify_setup(installer, folder, previous):
     user32 = ctypes.WinDLL('user32', use_last_error=True)
     window_callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows.argtypes = [window_callback, wintypes.LPARAM]
@@ -22,7 +22,7 @@ def verify_setup(installer, folder):
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
     user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 
-    command = subprocess.list2cmdline([installer, '/AUTORESTART=1']) + ' /D=' + folder
+    command = subprocess.list2cmdline([installer, '/AUTORESTART=1', f'/WAITPID={previous.pid}']) + ' /D=' + folder
     process = subprocess.Popen(command, executable=installer)
 
     def click_page(label, timeout):
@@ -58,6 +58,11 @@ def verify_setup(installer, folder):
 
     try:
         click_page('설치', 30)
+        # The first Setup page must be accessible while the old process and
+        # its instance mutex still exist. Now let that process exit normally.
+        assert previous.poll() is None
+        previous.stdin.close()
+        assert previous.wait(timeout=10) == 0
         click_page('마침', 120)
         if process.wait(timeout=25) != 0:
             raise RuntimeError('Setup did not exit successfully.')
@@ -68,4 +73,19 @@ def verify_setup(installer, folder):
 
 
 if __name__ == '__main__':
-    verify_setup(*sys.argv[1:])
+    if sys.argv[1:] == ['--previous-instance']:
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel.CreateMutexW.restype = wintypes.HANDLE
+        if not kernel.CreateMutexW(None, False, r'Local\WorkSpaceRunning'):
+            raise ctypes.WinError(ctypes.get_last_error())
+        print('ready', flush=True)
+        sys.stdin.buffer.read(1)
+    else:
+        with subprocess.Popen([sys.executable, __file__, '--previous-instance'],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE) as previous:
+            try:
+                assert previous.stdout.readline().strip() == b'ready'
+                verify_setup(*sys.argv[1:], previous)
+            finally:
+                previous.stdin.close()

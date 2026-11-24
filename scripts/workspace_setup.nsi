@@ -17,6 +17,7 @@ ShowInstDetails show
 
 Var AutoRestart
 Var InstallMutex
+Var WaitHandle
 
 !define MUI_ICON "..\assets\workspace.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\WorkSpace.exe"
@@ -47,11 +48,13 @@ Function .onInit
   ClearErrors
   ${GetOptions} $0 "/WAITPID=" $0
   IfErrors check_running
-  System::Call 'kernel32::OpenProcess(i 0x100000, i 0, i r0) p.r1'
-  StrCmp $1 0 check_running
-  System::Call 'kernel32::WaitForSingleObject(p r1, i 60000) i.r2'
-  System::Call 'kernel32::CloseHandle(p r1)'
-  StrCmp $2 0 check_running blocked
+  System::Call 'kernel32::OpenProcess(i 0x100000, i 0, i r0) p.r1 ?e'
+  Pop $2
+  StrCmp $1 0 0 remember_process
+  StrCmp $2 87 check_running blocked
+  remember_process:
+  StrCpy $WaitHandle $1
+  Goto done
 
   check_running:
   System::Call 'kernel32::OpenMutexW(i 0x100000, i 0, w "Local\WorkSpaceRunning") p.r0'
@@ -94,6 +97,29 @@ Function .onInstSuccess
 FunctionEnd
 
 Section "Work Space"
+  ; Show the wizard before waiting. The process handle refers to the exact
+  ; original instance even if Windows subsequently reuses its PID.
+  StrCmp $WaitHandle "" check_instance
+  DetailPrint "기존 Work Space 종료를 기다리고 있습니다…"
+  wait_for_exit:
+  System::Call 'kernel32::WaitForSingleObject(p $WaitHandle, i 60000) i.r2'
+  StrCmp $2 0 release_handle
+  IfSilent stop_install
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Work Space가 아직 종료되지 않았습니다. 열려 있는 작업을 저장하고 Work Space를 닫은 뒤 다시 시도해 주세요." IDRETRY wait_for_exit
+  Goto stop_install
+  release_handle:
+  System::Call 'kernel32::CloseHandle(p $WaitHandle)'
+  StrCpy $WaitHandle ""
+  check_instance:
+  System::Call 'kernel32::OpenMutexW(i 0x100000, i 0, w "Local\WorkSpaceRunning") p.r0'
+  StrCmp $0 0 install_files
+  System::Call 'kernel32::CloseHandle(p r0)'
+  IfSilent stop_install
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "실행 중인 Work Space를 닫은 뒤 다시 시도해 주세요." IDRETRY check_instance
+  stop_install:
+  SetErrorLevel 1
+  Abort
+  install_files:
   SetRegView 64
   SetShellVarContext current
   SetOutPath "$INSTDIR\versions\${VERSION}"
