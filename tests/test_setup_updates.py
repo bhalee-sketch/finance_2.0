@@ -77,6 +77,9 @@ def test_centered_update_confirmation_then_automatic_restart(tmp_path, accepted)
             dialog,=[child for child in root.winfo_children() if isinstance(child,tk.Toplevel)]
             assert dialog.title()=='업데이트 확인'
             assert root.grab_current() is dialog
+            # The desktop launcher ignores a close request while a modal is open.
+            from launcher import Launcher
+            root.protocol('WM_DELETE_WINDOW',lambda:Launcher.close(SimpleNamespace(root=root)))
             buttons={button.text():button for button in dialog._q.findChildren(tk.W.QPushButton)}
             assert not buttons['지금 업데이트'].isEnabled()
             pending.pop(0)()
@@ -94,7 +97,15 @@ def test_centered_update_confirmation_then_automatic_restart(tmp_path, accepted)
             pending.pop(0)()
             assert dialog._q.findChild(tk.W.QProgressBar).value()==100
             assert '재시작 중' in status.get()
-            pending.pop(0)()
+            # Run the install handoff in the real event loop. Hidden widgets alone
+            # do not release the instance mutex or satisfy the installer's /WAITPID.
+            watchdog=tk.C.QTimer()
+            watchdog.setSingleShot(True)
+            watchdog.timeout.connect(lambda:tk.application().exit(1))
+            watchdog.start(3000)
+            root.after(0,pending.pop(0))
+            try:assert root.mainloop()==0
+            finally:watchdog.stop()
             launch.assert_called_once()
             assert '/AUTORESTART=1 /WAITPID=' in launch.call_args.args[0]
             assert launch.call_args.args[0].endswith(' /D='+str(tmp_path))

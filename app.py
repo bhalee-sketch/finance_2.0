@@ -262,6 +262,10 @@ def main():
         from closing_review_ui import open_closing_review
         open_closing_review(root,desktop,center_window)
 
+    def work_records_view():
+        from work_records_ui import open_work_records
+        open_work_records(root,desktop,center_window)
+
     def appendix_view():
         from appendix_view import open_appendix_view
         open_appendix_view(root,center_window,open_result_file)
@@ -296,6 +300,9 @@ def main():
         ('5. 통합 작업',[
             ('원장통합',lambda:merge_view(True)),
             ('재무제표 Excel 통합',merge_view),
+        ]),
+        ('6. 업무 기록',[
+            ('업무 기록장',work_records_view),
         ]),
     ]
     from app_profile import menu_groups,settings_path

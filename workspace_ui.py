@@ -58,7 +58,7 @@ class Workspace:
         side_layout.addWidget(self.nav._q,1);self.nav._q.show()
         for gi,(name,cards) in enumerate(launcher.groups):
             group=self.nav.insert('','end',iid=f'g{gi}',text=re.sub(r'^\d+\.\s*','',name),open=True)
-            icons=('statements','analysis','tools','funds','merge')
+            icons=('statements','analysis','tools','funds','merge','statements')
             if gi<len(icons):self.nav._nodes[group].setIcon(G.QIcon(str(Path(__file__).resolve().parent/'assets'/('menu-'+icons[gi]+'.svg'))))
             for ci,(label,command) in enumerate(cards):
                 key=f'g{gi}c{ci}';title=label.split('\n')[0]

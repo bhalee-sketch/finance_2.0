@@ -589,8 +589,12 @@ class Tk(Window):
         _default_root=None
         super().__init__(None,**kw);self.master=None;_default_root=self
     def destroy(self):
-        if getattr(self,'_in_mainloop',False):application().quit()
-        super().destroy()
+        try:
+            super().destroy()
+        finally:
+            # Root destruction is already authorized. QApplication.quit() requests
+            # another window close, which a modal update dialog can veto.
+            if getattr(self,'_in_mainloop',False):application().exit(0)
 class Toplevel(Window):pass
 class Frame(Widget):pass
 class LabelFrame(Widget):
