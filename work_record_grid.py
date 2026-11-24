@@ -52,11 +52,14 @@ class FreeSheetModel(C.QAbstractTableModel):
         if role == C.Qt.ItemDataRole.TextAlignmentRole and isinstance(value, Decimal):
             return C.Qt.AlignmentFlag.AlignRight | C.Qt.AlignmentFlag.AlignVCenter
 
-    def open_task(self, task):
+    def open_task(self, task, merges=()):
         cells = self.book.grid_values(task)
         self.beginResetModel()
         self.task, self.cells = task, cells
         self.rows, self.columns = self.extent(cells)
+        for _, _, bottom, right in merges:
+            self.rows = max(self.rows, bottom + 1)
+            self.columns = max(self.columns, right + 1)
         self.recalculate()
         self.endResetModel()
 
@@ -175,16 +178,36 @@ class FreeSheet(W.QTableView):
 
     def open_task(self, task):
         header = self.horizontalHeader()
+        merges = self.model().book.grid_merges(task)
+        self.clearSpans()
         with C.QSignalBlocker(header):
             for column in self.widths.keys() | self.auto_columns:
                 header.resizeSection(column, header.defaultSectionSize())
             self.auto_columns.clear()
-            self.model().open_task(task)
+            self.model().open_task(task, merges)
             self.widths = self.model().book.grid_widths(task)
             self.pending_widths.clear()
             for column, size in self.widths.items():
                 header.resizeSection(column, size)
+        self.apply_merges(merges)
         self.fit_cells()
+
+    def apply_merges(self, merges):
+        for top, left, bottom, right in merges:
+            self.setSpan(top, left, bottom - top + 1, right - left + 1)
+
+    def change_merge(self, merge):
+        selection = self.selectionModel().selection()
+        if len(selection) != 1:
+            raise ValueError('하나의 연속된 셀 범위를 선택하세요.')
+        area = selection[0]
+        bounds = area.top(), area.left(), area.bottom(), area.right()
+        model = self.model()
+        model.book.change_merge(model.task, bounds, merge=merge)
+        self.clearSpans()
+        self.apply_merges(model.book.grid_merges(model.task))
+        self.setCurrentIndex(area.topLeft())
+        model.status.emit('셀 병합 저장됨' if merge else '병합 해제 저장됨')
 
     def keyPressEvent(self, event):
         sheet = self.model()

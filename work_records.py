@@ -43,6 +43,15 @@ class RecordBook:
             db.execute("""CREATE TABLE IF NOT EXISTS grid_widths (
                 task INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
                 col_num INTEGER NOT NULL, width INTEGER NOT NULL, PRIMARY KEY(task, col_num))""")
+            db.execute("""CREATE TABLE IF NOT EXISTS grid_merges (
+                task INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                top INTEGER NOT NULL, left_col INTEGER NOT NULL, bottom INTEGER NOT NULL, right_col INTEGER NOT NULL,
+                PRIMARY KEY(task, top, left_col))""")
+            db.execute("""CREATE TRIGGER IF NOT EXISTS guard_merged_cells BEFORE INSERT ON grid_cells
+                WHEN EXISTS (SELECT 1 FROM grid_merges WHERE task=NEW.task
+                    AND NEW.row_num BETWEEN top AND bottom AND NEW.col_num BETWEEN left_col AND right_col
+                    AND (NEW.row_num<>top OR NEW.col_num<>left_col))
+                BEGIN SELECT RAISE(ABORT, '병합된 셀 안에 붙여넣으려면 먼저 병합을 해제하세요.'); END""")
             if db.execute('PRAGMA user_version').fetchone()[0] == 0:
                 self._import_previous_forms(db)
                 db.execute('PRAGMA user_version=1')
@@ -132,6 +141,30 @@ class RecordBook:
     def grid_widths(self, task):
         with self.transaction() as db:
             return dict(db.execute('SELECT col_num,width FROM grid_widths WHERE task=?', (task,)))
+
+    def grid_merges(self, task):
+        with self.transaction() as db:
+            return db.execute('SELECT top,left_col,bottom,right_col FROM grid_merges WHERE task=?', (task,)).fetchall()
+
+    def change_merge(self, task, bounds, *, merge):
+        top, left, bottom, right = bounds
+        overlap = 'task=? AND bottom>=? AND right_col>=? AND top<=? AND left_col<=?'
+        params = (task, top, left, bottom, right)
+        with self.transaction() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not merge:
+                if not db.execute(f'DELETE FROM grid_merges WHERE {overlap}', params).rowcount:
+                    raise ValueError('해제할 병합 셀을 선택하세요.')
+                return
+            if top == bottom and left == right:
+                raise ValueError('병합할 셀을 두 개 이상 선택하세요.')
+            if db.execute(f'SELECT 1 FROM grid_merges WHERE {overlap}', params).fetchone():
+                raise ValueError('이미 병합된 셀이 포함되어 있습니다. 먼저 병합을 해제하세요.')
+            if db.execute('SELECT 1 FROM grid_cells WHERE task=? AND row_num BETWEEN ? AND ? '
+                          'AND col_num BETWEEN ? AND ? AND (row_num<>? OR col_num<>?) LIMIT 1',
+                          (task, top, bottom, left, right, top, left)).fetchone():
+                raise ValueError('왼쪽 위 셀 이외에 값이 있습니다. 해당 값을 옮긴 뒤 병합하세요.')
+            db.execute('INSERT INTO grid_merges VALUES(?,?,?,?,?)', params)
 
     def save_grid_widths(self, task, widths):
         with self.transaction() as db:

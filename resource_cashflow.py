@@ -41,14 +41,19 @@ class Cashflow:
     amounts: dict
     ranks: dict
 
+    def _postings(self, fund):
+        if fund is None:
+            return self.amounts.items()
+        selected = {fund} if isinstance(fund, str) else set(fund)
+        return ((key, amount) for key, amount in self.amounts.items() if key[0] in selected)
+
     def project_statement(self, fund=None):
         """Roll up classified postings once, at the 관 level, in statement order."""
         accounts = defaultdict(lambda: defaultdict(Decimal))
         projects = set()
-        for (source, project, side, path), amount in self.amounts.items():
-            if fund is None or source == fund:
-                accounts[side, path[0]][project] += amount
-                projects.add(project)
+        for (_, project, side, path), amount in self._postings(fund):
+            accounts[side, path[0]][project] += amount
+            projects.add(project)
         projects = sorted(projects, key=lambda name: (not name, name))
         order = dict.fromkeys((side, kwan) for side, kwan, _, _ in self.ranks)
         rows = []
@@ -71,9 +76,7 @@ class Cashflow:
 
     def report(self, view, fund=None):
         groups = defaultdict(lambda: [Decimal(0), Decimal(0)])
-        for (source, project, side, account), amount in self.amounts.items():
-            if fund is not None and fund != source:
-                continue
+        for (source, project, side, account), amount in self._postings(fund):
             if view == '재원별 요약':
                 key = (source,)
             elif view == '대사업별 요약':

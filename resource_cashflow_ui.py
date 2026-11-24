@@ -15,6 +15,30 @@ VIEWS = {
     '재원별 요약': ('재원',),
     '계정·대사업별 상세': ('구분', '관', '항', '목', '대사업'),
 }
+TOTAL_BACKGROUNDS = {
+    '자금수입총계': ('#D9F1E5', '#244437'),
+    '자금지출총계': ('#FFEACF', '#523B29'),
+}
+
+
+def total_background(account, palette):
+    colors = TOTAL_BACKGROUNDS.get(account)
+    if colors:
+        return tk.G.QColor(colors[0] if palette.base().color().lightness() > 128 else colors[1])
+
+
+class AccountHeader(tk.W.QHeaderView):
+    def paintSection(self, painter, rect, section):
+        account = self.model().headerData(section, self.orientation())
+        background = total_background(account, self.palette())
+        if background is None:
+            return super().paintSection(painter, rect, section)
+        painter.save()
+        painter.fillRect(rect, background)
+        painter.setFont(self.model().headerData(section, self.orientation(), tk.C.Qt.ItemDataRole.FontRole))
+        painter.setPen(self.palette().text().color())
+        painter.drawText(rect.adjusted(8, 0, -4, 0), self.defaultAlignment(), account)
+        painter.restore()
 
 
 class CashflowAmountDelegate(tk.W.QStyledItemDelegate):
@@ -31,22 +55,88 @@ class CashflowAmountDelegate(tk.W.QStyledItemDelegate):
             option.palette.setColor(role, red)
 
 
-def set_choices(combo, choices):
-    compact_combo(combo, choices)
-    for i in range(combo._q.count()):
-        combo._q.setItemData(i, tk.C.Qt.AlignmentFlag.AlignCenter, tk.C.Qt.ItemDataRole.TextAlignmentRole)
-    combo.current(0)
+class StatementAmountDelegate(CashflowAmountDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        account = index.model().headerData(index.row(), tk.C.Qt.Orientation.Vertical)
+        background = total_background(account, option.palette)
+        if background is not None:
+            option.backgroundBrush = tk.G.QBrush(background)
 
 
-def labeled_combo(bar, title, choices):
+class FundMenu(tk.W.QMenu):
+    """Let several checkable actions be toggled before the menu is dismissed."""
+    def mouseReleaseEvent(self, event):
+        action = self.actionAt(event.position().toPoint())
+        if action and event.button() == tk.C.Qt.MouseButton.LeftButton:
+            action.trigger()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if self.activeAction() and event.key() in (tk.C.Qt.Key.Key_Space, tk.C.Qt.Key.Key_Return,
+                                                    tk.C.Qt.Key.Key_Enter):
+            self.activeAction().trigger()
+            return
+        super().keyPressEvent(event)
+
+
+class FundComboBox(tk.DropDownComboBox):
+    selectionChanged = tk.C.Signal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setSizeAdjustPolicy(tk.W.QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.menu = FundMenu(self)
+        self.menu.aboutToHide.connect(self.hidePopup)
+        self.menu.triggered.connect(self.update_selection)
+        self.set_funds([])
+
+    def set_funds(self, funds):
+        self.menu.clear()
+        self.all_funds = self.menu.addAction('전체 재원')
+        self.all_funds.setCheckable(True)
+        self.all_funds.setChecked(True)
+        self.choices = {}
+        for name in funds:
+            action = self.menu.addAction((name or '미지정').replace('&', '&&'))
+            action.setCheckable(True)
+            self.choices[name] = action
+        self.clear()
+        self.addItem('전체 재원')
+        self.setToolTip('')
+
+    def selected_funds(self):
+        return {name for name, action in self.choices.items() if action.isChecked()} or None
+
+    def update_selection(self, action):
+        if action is self.all_funds:
+            for choice in self.choices.values():
+                choice.setChecked(False)
+        selected = [name or '미지정' for name, choice in self.choices.items() if choice.isChecked()]
+        self.all_funds.setChecked(not selected)
+        text = selected[0] if selected else '전체 재원'
+        if len(selected) > 1:
+            text = f'재원 {len(selected)}개 선택'
+        self.setItemText(0, text)
+        self.setToolTip(', '.join(selected))
+        self.selectionChanged.emit()
+
+    def showPopup(self):
+        self.menu.setMinimumWidth(self.width())
+        self.menu.popup(self.mapToGlobal(tk.C.QPoint(0, self.height())), self.all_funds)
+
+
+class FundSelector(ttk.Combobox):
+    qt_type = FundComboBox
+
+
+def labeled_combo(bar, title, widget=ttk.Combobox):
     pair = ttk.Frame(bar)
     pair.pack(side='left')
     ttk.Label(pair, text=title).pack(side='left', padx=(0, 6))
-    combo = ttk.Combobox(pair, state='readonly')
+    combo = widget(pair, state='readonly')
     combo._q.setAccessibleName(title)
-    combo._q.setItemDelegate(tk.W.QStyledItemDelegate(combo._q))
-    combo._q.setLabelDrawingMode(tk.W.QComboBox.LabelDrawingMode.UseDelegate)
-    set_choices(combo, choices)
     combo.pack(side='left')
     return combo
 
@@ -87,14 +177,17 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
     bar.pack(fill='x')
     upload = ttk.Button(bar, text='원장 엑셀 업로드', command=lambda: choose())
     upload.pack(side='left')
-    fund = labeled_combo(bar, '재원', ['전체 재원'])
-    view = labeled_combo(bar, '보기', [SUMMARY, *VIEWS])
+    view = labeled_combo(bar, '보기')
+    compact_combo(view, [SUMMARY, *VIEWS])
+    view.current(0)
+    fund = labeled_combo(bar, '재원', FundSelector)
     note = tk.StringVar(value='계정별 원장을 올리면 자금계산서 계정 기준으로 수입과 지출을 집계합니다.')
     ttk.Label(frame, textvariable=note, style='Muted.TLabel', wraplength=1000).pack(fill='x', pady=6)
     summary = ttk.Frame(frame)
     grid = tk.W.QTableWidget(summary._q)
     grid.setAccessibleName(SUMMARY)
-    grid.setItemDelegate(CashflowAmountDelegate(grid))
+    grid.setItemDelegate(StatementAmountDelegate(grid))
+    grid.setVerticalHeader(AccountHeader(tk.C.Qt.Orientation.Vertical, grid))
     grid.setLayoutDirection(tk.C.Qt.LayoutDirection.LeftToRight)
     grid.setAlternatingRowColors(True)
     grid.setEditTriggers(tk.W.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -106,20 +199,19 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
     tree = table(detail, ['대사업', '수입(원)', '지출(원)', '수지차액(원)'], auto_scroll=True)
     tree._q.setItemDelegate(CashflowAmountDelegate(tree._q))
     result = None
-    funds = [None]
 
     def show(event=None):
         name = view.get()
         if name == SUMMARY:
             detail.pack_forget()
             summary.pack(fill='both', expand=True)
-            draw_project_statement(grid, result, funds[fund.current()])
+            draw_project_statement(grid, result, fund._q.selected_funds())
             return
         summary.pack_forget()
         detail.pack(fill='both', expand=True)
         dimensions = VIEWS[name]
         headers = [*dimensions, '수입(원)', '지출(원)', '수지차액(원)']
-        data = result.report(name, funds[fund.current()]) if result else []
+        data = result.report(name, fund._q.selected_funds()) if result else []
         start = len(dimensions)
         totals = [sum(row[col] for row in data) for col in range(start, start + 3)]
         formatted = [[*(value or '미지정' for value in row[:start]), *row[start:]] for row in data]
@@ -138,10 +230,9 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
             return
 
         def done(report):
-            nonlocal result, funds
+            nonlocal result
             result = report
-            funds = [None, *sorted({key[0] for key in report.amounts})]
-            set_choices(fund, ['전체 재원', *(name or '미지정' for name in funds[1:])])
+            fund._q.set_funds(sorted({key[0] for key in report.amounts}))
             note.set(f'{Path(source).name} · {report.year}년도 원장 · 계정 기준 {report.basis}년도 자금계산서'
                      f' · 교육외수입 제외 · 포함 {report.included:,}행 · 제외 {report.excluded:,}행')
             show()
@@ -149,7 +240,7 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
 
         jobs.run(lambda: analyze_cashflow(source, reference), done)
 
-    fund.bind('<<ComboboxSelected>>', show)
+    fund._q.selectionChanged.connect(show)
     view.bind('<<ComboboxSelected>>', show)
     jobs.controls.extend((upload, fund, view))
     show()

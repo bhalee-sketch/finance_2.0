@@ -122,6 +122,13 @@ def test_free_sheet_parallel_tables_formulas_and_reopen(tmp_path):
                 QTest.keyClick(grid, tk.C.Qt.Key.Key_V, tk.C.Qt.KeyboardModifier.ControlModifier)
 
             paste(0, 0, '배당 내역\t\t\t장학금 지급 내역')
+            grid.setCurrentIndex(model.index(0, 0))
+            QTest.keyClick(grid, tk.C.Qt.Key.Key_Right, tk.C.Qt.KeyboardModifier.ShiftModifier)
+            merge = next(b for b in window._q.findChildren(tk.W.QPushButton) if b.text() == '셀 병합')
+            merge.click()
+            assert grid.columnSpan(0, 0) == 2
+            assert not model.write({(0, 0): '변경', (0, 1): '겹침'})
+            assert model.book.grid_values(model.task)[0, 0] == '배당 내역'
             paste(1, 0, '2019년\t34000000\n2020년\t28000000')
             paste(1, 3, '2019년\t0\n2020년\t10773990')
             paste(9, 1, '=SUM(B2:B9)')
@@ -148,6 +155,7 @@ def test_free_sheet_parallel_tables_formulas_and_reopen(tmp_path):
             with patch('work_records_ui.simpledialog.askstring', return_value='다른 업무'):
                 button.click()
             assert not grid.model().cells and grid.columnWidth(2) != 48
+            assert grid.columnSpan(0, 0) == 1
             selector.setCurrentItem(selector.findItems('기금 관리', tk.C.Qt.MatchFlag.MatchExactly)[0])
             assert grid.columnWidth(2) == 48 and grid.model().index(14, 4).data() == '17,226,010'
             grid.setCurrentIndex(model.index(0, 0))
@@ -160,6 +168,11 @@ def test_free_sheet_parallel_tables_formulas_and_reopen(tmp_path):
             assert grid.columnWidth(2) == 48
             model = grid.model()
             assert model.index(0, 0).data() == '연도별 배당 내역'
+            assert grid.columnSpan(0, 0) == 2
+            unmerge = next(b for b in workspace.tabs['g5c0']._q.findChildren(tk.W.QPushButton) if b.text() == '병합 해제')
+            grid.setCurrentIndex(model.index(0, 0))
+            unmerge.click()
+            assert grid.columnSpan(0, 0) == 1 and model.book.grid_merges(model.task) == []
             assert model.index(14, 4).data(tk.C.Qt.ItemDataRole.EditRole) == '=B10-E10'
             assert model.index(19, 26).data() == '17,226,010'
         finally:

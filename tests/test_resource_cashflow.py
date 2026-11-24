@@ -66,6 +66,23 @@ def test_cashflow_rejects_unusable_uploads(tmp_path):
         analyze_cashflow(workbook(path, [(2025, *EXPENSE, '', '', '오류', 0)]), history())
 
 
+def test_multiple_funds_share_projects_and_include_unassigned(tmp_path):
+    report = analyze_cashflow(workbook(tmp_path / '원장.xlsx', [
+        (2026, *INCOME, '사업1', '기금A', 0, 100),
+        (2026, *INCOME, '사업1', '', 0, 50),
+        (2026, *EXPENSE, '사업1', '', 20, 0),
+        (2026, *EXPENSE, '사업2', '기금B', 40, 0),
+    ]), history())
+    funds = {'기금A', ''}
+    projects, rows = report.project_statement(funds)
+    assert projects == ['사업1']
+    assert rows[-1] == ('수지차액', [130])
+    assert report.report('대사업별 요약', funds) == [('사업1', 150, 20, 130)]
+    assert report.report('재원별 요약', funds) == [('', 50, 20, 30), ('기금A', 100, 0, 100)]
+    assert report.report('계정·대사업별 상세', funds) == [
+        ('수입', *INCOME, '사업1', 150, 0, 150), ('지출', *EXPENSE, '사업1', 0, 20, -20)]
+
+
 def test_statement_summary_separates_sides_and_reconciles_every_project(tmp_path):
     report = analyze_cashflow(sample(tmp_path / '원장.xlsx'), history())
     projects, rows = report.project_statement()

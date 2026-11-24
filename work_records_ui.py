@@ -87,6 +87,8 @@ def open_work_records(parent, desktop, center):
         finish_edit()
         task = selected_task()
         active = task is not None
+        merge.setEnabled(active)
+        unmerge.setEnabled(active)
         rename.setEnabled(active)
         remove.setEnabled(active)
         grid.setVisible(active)
@@ -135,6 +137,8 @@ def open_work_records(parent, desktop, center):
             book.delete_task(selected_task())
             load_tasks(book.tasks())
 
+    merge = button(task_bar, '셀 병합', lambda: grid.change_merge(True))
+    unmerge = button(task_bar, '병합 해제', lambda: grid.change_merge(False))
     button(task_bar, '새 업무', lambda: edit_name(True))
     rename = button(task_bar, '업무명 변경', lambda: edit_name(False))
     remove = button(task_bar, '업무 삭제', delete_task)
