@@ -17,10 +17,43 @@ VIEWS = {
 }
 
 
+class CashflowAmountDelegate(tk.W.QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if not (option.displayAlignment & tk.C.Qt.AlignmentFlag.AlignRight) or not option.text.startswith('-'):
+            return
+        if option.text == '-0':
+            option.text = '0'
+            return
+        option.text = f'({option.text[1:]})'
+        red = tk.G.QColor('#B42328' if option.palette.base().color().lightness() > 128 else '#FF999C')
+        for role in (tk.G.QPalette.ColorRole.Text, tk.G.QPalette.ColorRole.HighlightedText):
+            option.palette.setColor(role, red)
+
+
+def set_choices(combo, choices):
+    compact_combo(combo, choices)
+    for i in range(combo._q.count()):
+        combo._q.setItemData(i, tk.C.Qt.AlignmentFlag.AlignCenter, tk.C.Qt.ItemDataRole.TextAlignmentRole)
+    combo.current(0)
+
+
+def labeled_combo(bar, title, choices):
+    pair = ttk.Frame(bar)
+    pair.pack(side='left')
+    ttk.Label(pair, text=title).pack(side='left', padx=(0, 6))
+    combo = ttk.Combobox(pair, state='readonly')
+    combo._q.setAccessibleName(title)
+    combo._q.setItemDelegate(tk.W.QStyledItemDelegate(combo._q))
+    combo._q.setLabelDrawingMode(tk.W.QComboBox.LabelDrawingMode.UseDelegate)
+    set_choices(combo, choices)
+    combo.pack(side='left')
+    return combo
+
+
 def draw_project_statement(grid, report, fund):
     projects, rows = report.project_statement(fund) if report else ([], [])
-    # In right-to-left geometry column 0 sits next to the fixed account labels.
-    headers = ['합계(원)', *(name or '대사업 미지정' for name in reversed(projects))]
+    headers = [*(name or '대사업 미지정' for name in projects), '합계(원)']
     grid.clear()
     grid.setColumnCount(len(headers))
     grid.setRowCount(len(rows))
@@ -35,7 +68,7 @@ def draw_project_statement(grid, report, fund):
         if values is None:
             continue
         total = sum(value for value in values if value is not None)
-        for col, value in enumerate([total, *reversed(values)]):
+        for col, value in enumerate([*values, total]):
             if value is None:
                 continue
             item = tk.W.QTableWidgetItem(amount_text(value))
@@ -54,21 +87,15 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
     bar.pack(fill='x')
     upload = ttk.Button(bar, text='원장 엑셀 업로드', command=lambda: choose())
     upload.pack(side='left')
-    ttk.Label(bar, text='재원').pack(side='left')
-    fund = ttk.Combobox(bar, state='readonly', values=['전체 재원'])
-    fund.current(0)
-    fund.pack(side='left')
-    ttk.Label(bar, text='보기').pack(side='left')
-    view = ttk.Combobox(bar, state='readonly')
-    compact_combo(view, [SUMMARY, *VIEWS])
-    view.current(0)
-    view.pack(side='left')
+    fund = labeled_combo(bar, '재원', ['전체 재원'])
+    view = labeled_combo(bar, '보기', [SUMMARY, *VIEWS])
     note = tk.StringVar(value='계정별 원장을 올리면 자금계산서 계정 기준으로 수입과 지출을 집계합니다.')
     ttk.Label(frame, textvariable=note, style='Muted.TLabel', wraplength=1000).pack(fill='x', pady=6)
     summary = ttk.Frame(frame)
     grid = tk.W.QTableWidget(summary._q)
     grid.setAccessibleName(SUMMARY)
-    grid.setLayoutDirection(tk.C.Qt.LayoutDirection.RightToLeft)
+    grid.setItemDelegate(CashflowAmountDelegate(grid))
+    grid.setLayoutDirection(tk.C.Qt.LayoutDirection.LeftToRight)
     grid.setAlternatingRowColors(True)
     grid.setEditTriggers(tk.W.QAbstractItemView.EditTrigger.NoEditTriggers)
     grid.verticalHeader().setDefaultAlignment(tk.C.Qt.AlignmentFlag.AlignLeft | tk.C.Qt.AlignmentFlag.AlignVCenter)
@@ -77,6 +104,7 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
     layout.addWidget(grid)
     detail = ttk.Frame(frame)
     tree = table(detail, ['대사업', '수입(원)', '지출(원)', '수지차액(원)'], auto_scroll=True)
+    tree._q.setItemDelegate(CashflowAmountDelegate(tree._q))
     result = None
     funds = [None]
 
@@ -113,10 +141,9 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
             nonlocal result, funds
             result = report
             funds = [None, *sorted({key[0] for key in report.amounts})]
-            compact_combo(fund, ['전체 재원', *(name or '미지정' for name in funds[1:])])
-            fund.current(0)
+            set_choices(fund, ['전체 재원', *(name or '미지정' for name in funds[1:])])
             note.set(f'{Path(source).name} · {report.year}년도 원장 · 계정 기준 {report.basis}년도 자금계산서'
-                     f' · 포함 {report.included:,}행 · 제외 {report.excluded:,}행')
+                     f' · 교육외수입 제외 · 포함 {report.included:,}행 · 제외 {report.excluded:,}행')
             show()
             jobs.status.set('재원별 수지분석 완료')
 

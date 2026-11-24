@@ -48,7 +48,7 @@ class FreeSheetModel(C.QAbstractTableModel):
         if role == C.Qt.ItemDataRole.DisplayRole:
             if isinstance(value, Decimal):
                 return amount_text(value)
-            return raw if value is None else value
+            return raw.removeprefix("'") if value is None else value
         if role == C.Qt.ItemDataRole.TextAlignmentRole and isinstance(value, Decimal):
             return C.Qt.AlignmentFlag.AlignRight | C.Qt.AlignmentFlag.AlignVCenter
 
@@ -107,19 +107,56 @@ class FreeSheetModel(C.QAbstractTableModel):
 class FreeSheet(W.QTableView):
     def __init__(self, book):
         super().__init__()
+        self.setObjectName('WorkRecordGrid')
         self.setAccessibleName('자유 시트')
         self.setModel(FreeSheetModel(book, self))
         self.setSelectionMode(W.QAbstractItemView.SelectionMode.ContiguousSelection)
         self.horizontalHeader().setMinimumSectionSize(24)
         self.horizontalHeader().setDefaultSectionSize(max(96, self.fontMetrics().horizontalAdvance('999,999,999') + 20))
-        self.verticalHeader().setDefaultSectionSize(26)
-        self.setWordWrap(False)
+        row_header = self.verticalHeader()
+        row_header.setObjectName('WorkRecordRowNumbers')
+        row_header.setDefaultAlignment(C.Qt.AlignmentFlag.AlignCenter)
         self.widths = {}
+        self.auto_columns = set()
+        self.metrics_timer = C.QTimer(self)
+        self.metrics_timer.setSingleShot(True)
+        self.metrics_timer.timeout.connect(self.fit_cells)
+        row_header.installEventFilter(self)
+        self.installEventFilter(self)
+        self.model().dataChanged.connect(self.fit_cells)
+        self.fit_cells()
+        self.setWordWrap(False)
         self.pending_widths = {}
         self.width_timer = C.QTimer(self)
         self.width_timer.setSingleShot(True)
         self.width_timer.timeout.connect(self.flush_widths)
         self.horizontalHeader().sectionResized.connect(self.width_changed)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (C.QEvent.Type.FontChange, C.QEvent.Type.StyleChange):
+            if hasattr(self, 'metrics_timer'):
+                self.metrics_timer.start(0)
+        return super().eventFilter(obj, event)
+
+    def fit_cells(self):
+        metrics = self.fontMetrics()
+        row_header = self.verticalHeader()
+        row_height = max(26, metrics.height() + 6, row_header.fontMetrics().height() + 6,
+                         row_header.sectionSizeHint(0))
+        row_header.setDefaultSectionSize(row_height)
+        header = self.horizontalHeader()
+        required = {}
+        for (_, col), value in self.model().values.items():
+            if isinstance(value, Decimal) and col not in self.widths:
+                size = metrics.horizontalAdvance(amount_text(value)) + 12
+                if size > header.defaultSectionSize():
+                    required[col] = max(required.get(col, 0), size)
+        with C.QSignalBlocker(header):
+            for col in self.auto_columns - required.keys() - self.widths.keys():
+                header.resizeSection(col, header.defaultSectionSize())
+            for col, width in required.items():
+                header.resizeSection(col, width)
+        self.auto_columns = set(required)
 
     def width_changed(self, column, old_size, size):
         if self.model().task is not None and size > 0:
@@ -139,13 +176,15 @@ class FreeSheet(W.QTableView):
     def open_task(self, task):
         header = self.horizontalHeader()
         with C.QSignalBlocker(header):
-            for column in self.widths:
+            for column in self.widths.keys() | self.auto_columns:
                 header.resizeSection(column, header.defaultSectionSize())
+            self.auto_columns.clear()
             self.model().open_task(task)
             self.widths = self.model().book.grid_widths(task)
             self.pending_widths.clear()
             for column, size in self.widths.items():
                 header.resizeSection(column, size)
+        self.fit_cells()
 
     def keyPressEvent(self, event):
         sheet = self.model()

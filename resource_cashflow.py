@@ -122,12 +122,13 @@ def analyze_cashflow(path, history):
             elif posting_year != year:
                 raise ValueError(f'{number}행의 연도가 다릅니다. 한 회계연도의 원장을 선택하세요.')
             account = tuple(map(normalize, (kwan, hang, mok)))
+            if account[0] == '교육외수입':
+                excluded += 1
+                continue
             purchase = (account not in catalog and account[:2] == ('고정자산', '유형고정자산')
                         and account[2] in PURCHASES)
             if purchase:
                 account = (*account[:2], PURCHASES[account[2]])
-            elif account == ('교육외수입', '예금이자수입', '예금이자') and account not in catalog:
-                account = (*account[:2], '예금이자수입')
             sides = catalog.get(account)
             if not sides:
                 excluded += 1

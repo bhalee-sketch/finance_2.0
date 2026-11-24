@@ -36,6 +36,7 @@ def sample(path):
         (2026, *EXPENSE, '사업2', '기금B', 40, 0),
         (2026, *ASSET, '', '', 50, 11),
         (2026, *INTEREST[:2], '예금이자', '', '', 0, 9),
+        (2026, '교육외 수입', *INTEREST[1:], '사업1', '기금A', 0, 21),
         (2026, *EQUIPMENT[:2], '기계기구', '사업1', '기금A', 25, 0),
         (2026, '유동자산', '유동자금', '예금', '사업1', '기금A', 1000, 0),
         (2026, '다른관', '국고보조금', '교육부', '', '', 0, 1000),
@@ -44,15 +45,15 @@ def sample(path):
 
 def test_cashflow_reconciles_across_views(tmp_path):
     report = analyze_cashflow(sample(tmp_path / '원장.xlsx'), history())
-    assert (report.year, report.basis, report.included, report.excluded) == ('2026', '2025', 7, 2)
-    assert report.report('재원별 요약', '') == [('', 20, 50, -30)]
+    assert (report.year, report.basis, report.included, report.excluded) == ('2026', '2025', 6, 4)
+    assert report.report('재원별 요약', '') == [('', 11, 50, -39)]
     assert report.report('대사업별 요약', '기금A') == [('사업1', 950, 205, 745)]
     details = report.report('계정·대사업별 상세')
     assert ('지출', *EQUIPMENT, '사업1', 0, 25, -25) in details
     assert ('수입', *ASSET, '', 11, 0, 11) in details
     assert ('지출', *ASSET, '', 0, 50, -50) in details
     for view in ('재원별 요약', '대사업별 요약', '계정·대사업별 상세'):
-        assert [sum(row[i] for row in report.report(view)) for i in (-3, -2, -1)] == [970, 295, 675]
+        assert [sum(row[i] for row in report.report(view)) for i in (-3, -2, -1)] == [961, 295, 666]
 
 
 def test_cashflow_rejects_unusable_uploads(tmp_path):
@@ -71,10 +72,10 @@ def test_statement_summary_separates_sides_and_reconciles_every_project(tmp_path
     assert projects == ['사업1', '사업2', '']
     assert rows == [
         ('[수입]', None), ('전입및기부수입', [950, None, None]),
-        ('교육외수입', [None, None, 9]), ('고정자산', [None, None, 11]),
-        ('자금수입총계', [950, 0, 20]), ('[지출]', None),
+        ('고정자산', [None, None, 11]),
+        ('자금수입총계', [950, 0, 11]), ('[지출]', None),
         ('관리운영비', [180, 40, None]), ('고정자산', [25, None, 50]),
-        ('자금지출총계', [205, 40, 50]), ('수지차액', [745, -40, -30]),
+        ('자금지출총계', [205, 40, 50]), ('수지차액', [745, -40, -39]),
     ]
     projects, rows = report.project_statement('기금A')
     assert projects == ['사업1'] and rows[-1] == ('수지차액', [745])

@@ -22,6 +22,10 @@ QPushButton:pressed {{ background:{selection}; }}
 QPushButton:disabled {{ color:{muted}; }}
 QPushButton[role="Primary.TButton"] {{ background:{accent}; color:{button_text}; font-weight:600; border-color:{accent}; }}
 QLineEdit,QComboBox,QTextEdit,QListWidget {{ background:{panel}; border:1px solid {border}; border-radius:5px; padding:5px 7px; selection-background-color:{selection}; }}
+QListWidget#WorkRecordTaskList {{ selection-color:{text}; }}
+QListWidget#WorkRecordTaskList::item:selected {{ background:{selection}; color:{text}; }}
+QHeaderView#WorkRecordRowNumbers::section {{ padding:0px 4px; }}
+QTableView#WorkRecordGrid QLineEdit {{ padding:0px 2px; }}
 QLineEdit:focus,QComboBox:focus,QTextEdit:focus {{ border-color:{accent}; }}
 QComboBox {{ padding-right:28px; combobox-popup:0; }}
 QComboBox::drop-down {{ subcontrol-origin:padding; subcontrol-position:top right; border:0; width:24px; }}
