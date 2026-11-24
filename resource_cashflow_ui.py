@@ -1,10 +1,11 @@
 """Upload and inspect a resource ledger inside financial analysis."""
-from pathlib import Path
+from datetime import date
+from zipfile import BadZipFile
 
 import qt_ui as tk
 from qt_ui import filedialog, ttk
 from finance_ui import compact_combo
-from resource_cashflow import analyze_cashflow
+from resource_cashflow import read_cashflow, saved_cashflow_years, store_cashflow
 from responsive_ui import wrapping_row
 from statement_catalog import amount_text
 from statement_ui import table
@@ -64,81 +65,57 @@ class StatementAmountDelegate(CashflowAmountDelegate):
             option.backgroundBrush = tk.G.QBrush(background)
 
 
-class FundMenu(tk.W.QMenu):
-    """Let several checkable actions be toggled before the menu is dismissed."""
-    def mouseReleaseEvent(self, event):
-        action = self.actionAt(event.position().toPoint())
-        if action and event.button() == tk.C.Qt.MouseButton.LeftButton:
-            action.trigger()
-            return
-        super().mouseReleaseEvent(event)
+class FundSelectionDialog(tk.W.QDialog):
+    def __init__(self, window, funds, selected):
+        super().__init__(window._q)
+        from appearance import controller
+        from ui_theme import dark_titlebar
 
-    def keyPressEvent(self, event):
-        if self.activeAction() and event.key() in (tk.C.Qt.Key.Key_Space, tk.C.Qt.Key.Key_Return,
-                                                    tk.C.Qt.Key.Key_Enter):
-            self.activeAction().trigger()
-            return
-        super().keyPressEvent(event)
+        self.setWindowTitle('재원 선택')
+        layout = tk.W.QVBoxLayout(self)
+        self.all_funds = tk.W.QCheckBox('전체 재원')
+        layout.addWidget(self.all_funds)
 
-
-class FundComboBox(tk.DropDownComboBox):
-    selectionChanged = tk.C.Signal()
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setSizeAdjustPolicy(tk.W.QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.menu = FundMenu(self)
-        self.menu.aboutToHide.connect(self.hidePopup)
-        self.menu.triggered.connect(self.update_selection)
-        self.set_funds([])
-
-    def set_funds(self, funds):
-        self.menu.clear()
-        self.all_funds = self.menu.addAction('전체 재원')
-        self.all_funds.setCheckable(True)
-        self.all_funds.setChecked(True)
+        scroll = tk.W.QScrollArea()
+        scroll.setWidgetResizable(True)
+        contents = tk.W.QWidget()
+        rows = tk.W.QVBoxLayout(contents)
         self.choices = {}
         for name in funds:
-            action = self.menu.addAction((name or '미지정').replace('&', '&&'))
-            action.setCheckable(True)
-            self.choices[name] = action
-        self.clear()
-        self.addItem('전체 재원')
-        self.setToolTip('')
+            check = tk.W.QCheckBox((name or '미지정').replace('&', '&&'))
+            check.setChecked(selected is not None and name in selected)
+            check.clicked.connect(self.sync_all)
+            rows.addWidget(check)
+            self.choices[name] = check
+        rows.addStretch()
+        scroll.setWidget(contents)
+        layout.addWidget(scroll)
+        self.sync_all()
+        self.all_funds.clicked.connect(self.select_all)
+
+        buttons = tk.W.QDialogButtonBox()
+        apply = buttons.addButton('선택 적용', tk.W.QDialogButtonBox.ButtonRole.AcceptRole)
+        apply.setProperty('role', 'Primary.TButton')
+        apply.setDefault(True)
+        buttons.addButton('취소', tk.W.QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        buttons.setCenterButtons(True)
+        layout.addWidget(buttons)
+        self.resize(420, min(480, max(220, contents.sizeHint().height() + 110)))
+        appearance = controller(window)
+        dark_titlebar(self, theme=appearance.theme if appearance else 'light')
 
     def selected_funds(self):
-        return {name for name, action in self.choices.items() if action.isChecked()} or None
+        return {name for name, check in self.choices.items() if check.isChecked()} or None
 
-    def update_selection(self, action):
-        if action is self.all_funds:
-            for choice in self.choices.values():
-                choice.setChecked(False)
-        selected = [name or '미지정' for name, choice in self.choices.items() if choice.isChecked()]
-        self.all_funds.setChecked(not selected)
-        text = selected[0] if selected else '전체 재원'
-        if len(selected) > 1:
-            text = f'재원 {len(selected)}개 선택'
-        self.setItemText(0, text)
-        self.setToolTip(', '.join(selected))
-        self.selectionChanged.emit()
+    def sync_all(self):
+        self.all_funds.setChecked(self.selected_funds() is None)
 
-    def showPopup(self):
-        self.menu.setMinimumWidth(self.width())
-        self.menu.popup(self.mapToGlobal(tk.C.QPoint(0, self.height())), self.all_funds)
-
-
-class FundSelector(ttk.Combobox):
-    qt_type = FundComboBox
-
-
-def labeled_combo(bar, title, widget=ttk.Combobox):
-    pair = ttk.Frame(bar)
-    pair.pack(side='left')
-    ttk.Label(pair, text=title).pack(side='left', padx=(0, 6))
-    combo = widget(pair, state='readonly')
-    combo._q.setAccessibleName(title)
-    combo.pack(side='left')
-    return combo
+    def select_all(self):
+        for check in self.choices.values():
+            check.setChecked(False)
+        self.all_funds.setChecked(True)
 
 
 def draw_project_statement(grid, report, fund):
@@ -170,17 +147,28 @@ def draw_project_statement(grid, report, fund):
     grid.horizontalScrollBar().setValue(0)
 
 
-def install_cashflow_tab(notebook, window, jobs, history, display_table):
+def install_cashflow_tab(notebook, window, jobs, history, display_table, folder):
     frame = ttk.Frame(notebook, padding=8)
     notebook.add(frame, text='재원별 수지분석')
     bar = wrapping_row(frame)
     bar.pack(fill='x')
+    def labeled_box(title):
+        pair = ttk.Frame(bar)
+        pair.pack(side='left')
+        ttk.Label(pair, text=title).pack(side='left', padx=(0, 6))
+        box = ttk.Combobox(pair, state='readonly')
+        box._q.setAccessibleName(title)
+        box.pack(side='left')
+        return box
+
+    year_box = labeled_box('회계연도')
     upload = ttk.Button(bar, text='원장 엑셀 업로드', command=lambda: choose())
     upload.pack(side='left')
-    view = labeled_combo(bar, '보기')
+    view = labeled_box('보기')
     compact_combo(view, [SUMMARY, *VIEWS])
     view.current(0)
-    fund = labeled_combo(bar, '재원', FundSelector)
+    fund = ttk.Button(bar, text='재원 선택 · 전체 재원', state='disabled', command=lambda: choose_funds())
+    fund.pack(side='left')
     note = tk.StringVar(value='계정별 원장을 올리면 자금계산서 계정 기준으로 수입과 지출을 집계합니다.')
     ttk.Label(frame, textvariable=note, style='Muted.TLabel', wraplength=1000).pack(fill='x', pady=6)
     summary = ttk.Frame(frame)
@@ -199,19 +187,40 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
     tree = table(detail, ['대사업', '수입(원)', '지출(원)', '수지차액(원)'], auto_scroll=True)
     tree._q.setItemDelegate(CashflowAmountDelegate(tree._q))
     result = None
+    available_funds = []
+    selected_funds = None
+
+    def choose_funds():
+        dialog = FundSelectionDialog(window, available_funds, selected_funds)
+        try:
+            if dialog.exec() == tk.W.QDialog.DialogCode.Accepted:
+                apply_funds(dialog.selected_funds())
+        finally:
+            dialog.deleteLater()
+
+    def apply_funds(selection):
+        nonlocal selected_funds
+        selected_funds = selection
+        names = [name or '미지정' for name in available_funds if selection and name in selection]
+        caption = names[0] if names else '전체 재원'
+        if len(names) > 1:
+            caption = f'{len(names)}개 선택'
+        fund.configure(text=f'재원 선택 · {caption}')
+        fund._q.setToolTip(', '.join(names))
+        show()
 
     def show(event=None):
         name = view.get()
         if name == SUMMARY:
             detail.pack_forget()
             summary.pack(fill='both', expand=True)
-            draw_project_statement(grid, result, fund._q.selected_funds())
+            draw_project_statement(grid, result, selected_funds)
             return
         summary.pack_forget()
         detail.pack(fill='both', expand=True)
         dimensions = VIEWS[name]
         headers = [*dimensions, '수입(원)', '지출(원)', '수지차액(원)']
-        data = result.report(name, fund._q.selected_funds()) if result else []
+        data = result.report(name, selected_funds) if result else []
         start = len(dimensions)
         totals = [sum(row[col] for row in data) for col in range(start, start + 3)]
         formatted = [[*(value or '미지정' for value in row[:start]), *row[start:]] for row in data]
@@ -219,29 +228,65 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table):
             formatted.append(['합계', *([''] * (start - 1)), *totals])
         display_table(tree, headers, formatted, range(start, start + 3))
 
+    def display_year(year, saved=None):
+        nonlocal result, available_funds
+        result = saved[1] if saved else None
+        available_funds = sorted({key[0] for key in result.amounts}) if result else []
+        fund.configure(state='normal' if available_funds else 'disabled')
+        if saved:
+            filename, report = saved
+            note.set(f'{year}회계연도 · {filename} · 원장 {report.year}년도 · 계정 기준 {report.basis}년도 자금계산서'
+                     f' · 교육외수입 제외 · 포함 {report.included:,}행 · 제외 {report.excluded:,}행')
+        else:
+            note.set(f'{year}회계연도에 저장된 원장이 없습니다. 원장 엑셀을 업로드하세요.')
+        apply_funds(None)
+
+    def open_year(event=None):
+        year = year_box.get()
+        try:
+            saved = read_cashflow(folder, year)
+        except FileNotFoundError:
+            saved = None
+        except (OSError, BadZipFile, KeyError, ValueError) as error:
+            display_year(year)
+            note.set(f'{year}회계연도 저장 자료를 열 수 없습니다.')
+            tk.messagebox.showerror('저장 원장 조회', str(error), parent=window)
+            return
+        display_year(year, saved)
+
+    def refresh_years():
+        current = str(date.today().year)
+        saved = saved_cashflow_years(folder)
+        previous = year_box.get()
+        years = sorted({current, str(int(current) - 1), *history(), *saved}, reverse=True)
+        chosen = previous if previous in years else next(iter(saved), current)
+        compact_combo(year_box, years)
+        year_box.current(years.index(chosen))
+        if not previous or chosen != previous:
+            open_year()
+
     def choose():
         reference = history()
         if not reference:
             tk.messagebox.showinfo('재원별 수지분석', '자금계산서 자료를 불러온 후 원장을 선택하세요.', parent=window)
             return
-        source = filedialog.askopenfilename(parent=window, title='재원별 수지분석 원장 선택',
+        year = year_box.get()
+        source = filedialog.askopenfilename(parent=window, title=f'{year}회계연도에 저장할 원장 선택',
                                             filetypes=[('Excel 파일', '*.xls *.xlsx *.xlsm')])
         if not source:
             return
+        if (folder / f'{year}.zip').exists() and not tk.messagebox.askyesno(
+                '원장 교체', f'{year}회계연도에 저장된 원장을 새 파일로 교체할까요?', parent=window):
+            return
 
-        def done(report):
-            nonlocal result
-            result = report
-            fund._q.set_funds(sorted({key[0] for key in report.amounts}))
-            note.set(f'{Path(source).name} · {report.year}년도 원장 · 계정 기준 {report.basis}년도 자금계산서'
-                     f' · 교육외수입 제외 · 포함 {report.included:,}행 · 제외 {report.excluded:,}행')
-            show()
-            jobs.status.set('재원별 수지분석 완료')
+        def done(saved):
+            display_year(year, saved)
+            jobs.status.set(f'{year}회계연도 재원별 수지분석 저장 완료')
 
-        jobs.run(lambda: analyze_cashflow(source, reference), done)
+        jobs.run(lambda: store_cashflow(folder, year, source, reference), done)
 
-    fund._q.selectionChanged.connect(show)
+    year_box.bind('<<ComboboxSelected>>', open_year)
     view.bind('<<ComboboxSelected>>', show)
-    jobs.controls.extend((upload, fund, view))
+    jobs.controls.extend((upload, fund, view, year_box))
     show()
-    return frame
+    return frame, refresh_years

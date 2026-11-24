@@ -10,7 +10,7 @@ import app
 from openpyxl import Workbook
 
 class FinanceToolMenuTests(unittest.TestCase):
-    def test_five_real_tools_and_requested_titles(self):
+    def test_real_tools_and_requested_titles(self):
         with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
             folder=Path(folder);(folder/'settings').mkdir()
             book=Workbook();book.active.append(['회계단위','계좌명']);book.active.append(['교비','테스트계좌'])
@@ -25,7 +25,7 @@ class FinanceToolMenuTests(unittest.TestCase):
                 launcher=root._launcher
                 groups=dict(launcher.groups)
                 self.assertEqual([name for name,_ in groups['4. 재원·계좌 검증']],['지출계좌별 재원코드','기부금계좌별 잔액','임의기금 재원별 지출내역'])
-                self.assertEqual([name for name,_ in groups['5. 통합 작업']],['원장통합','재무제표 Excel 통합'])
+                self.assertEqual([name for name,_ in groups['5. 통합 작업']],['원장통합','재무제표 Excel 통합','기타작업'])
                 workspace=launcher.workspace
                 for key,(title,_) in workspace.commands.items():
                     if not key.startswith(('g3','g4')):continue

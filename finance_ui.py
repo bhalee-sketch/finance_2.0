@@ -144,6 +144,51 @@ def open_merge(parent,desktop,center,open_file,ledger=False):
     tree.column('파일',width=380);tree.column('위치',width=650)
 
 
+def open_other_tasks(parent,desktop,center,open_file):
+    from analysis_runtime import load_analysis_history
+    from subprocess import SubprocessError
+    from cash_account_filter import filter_cash_accounts
+    from result_paths import result_path
+
+    window,body,status,jobs=shell(parent,'기타작업',center)
+    ttk.Label(body,text='자금계산서 계정 추출',style='Section.TLabel').pack(anchor='w')
+    ttk.Label(body,text='원장 엑셀을 올리면 첫 시트에서 자금계산서 계정에 해당하는 행을 추출합니다.').pack(anchor='w',pady=6)
+    bar=ttk.Frame(body)
+    bar.pack(fill='x',pady=8)
+    result=None
+
+    def choose():
+        nonlocal result
+        filename=filedialog.askopenfilename(parent=window,title='원장 엑셀 업로드',filetypes=FILETYPES)
+        if not filename:
+            return
+        source=Path(filename)
+        result=None
+        launch.configure(state='disabled')
+        def work():
+            history,_,_=load_analysis_history(desktop()/'settings'/'finance statement',materialize_sources=False)
+            return filter_cash_accounts(source,result_path('자금계산서 계정 추출'),history)
+        def done(output):
+            nonlocal result
+            result,scanned,kept=output
+            launch.configure(state='normal')
+            status.set(f'{source.name} · 전체 {scanned:,}행 · 추출 {kept:,}행 · 제외 {scanned-kept:,}행\n저장 위치 · {result}')
+        jobs.run(work,done)
+
+    def launch_result():
+        try:
+            open_file(result)
+        except (OSError, SubprocessError) as error:
+            messagebox.showerror('엑셀 열기', str(error), parent=window)
+
+    upload=ttk.Button(bar,text='원장 엑셀 업로드',command=choose,style='Primary.TButton')
+    upload.pack(side='left',padx=(0,8))
+    launch=ttk.Button(bar,text='엑셀 열기',command=launch_result,state='disabled')
+    launch.pack(side='left')
+    jobs.controls.extend((upload,launch))
+    return window
+
+
 def open_ledger(parent,desktop,center,open_file):
     from ledger_view import open_ledger as open_view
     return open_view(parent,desktop,center,open_file)

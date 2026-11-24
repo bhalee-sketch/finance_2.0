@@ -3,6 +3,11 @@ from collections import defaultdict
 from contextlib import closing
 from dataclasses import dataclass
 from decimal import Decimal
+import json
+from pathlib import Path
+from shutil import copyfile
+from tempfile import TemporaryDirectory
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from finance_data import money, rows, text
 from statement_analysis import normalize
@@ -30,6 +35,15 @@ def account_catalog(data):
             catalog.setdefault(key, {}).setdefault(item['section'], path)
             ranks.setdefault((item['section'], *path), len(ranks))
     return catalog, ranks
+
+
+def match_cash_account(catalog, account):
+    purchase = (account not in catalog and account[:2] == ('고정자산', '유형고정자산')
+                and account[2] in PURCHASES)
+    if purchase:
+        account = (*account[:2], PURCHASES[account[2]])
+    sides = catalog.get(account)
+    return sides, purchase
 
 
 @dataclass
@@ -96,7 +110,7 @@ class Cashflow:
         return rows
 
 
-def analyze_cashflow(path, history):
+def analyze_cashflow(path, history, *, fiscal_year=None):
     amounts = defaultdict(Decimal)
     year = basis = None
     included = excluded = 0
@@ -116,9 +130,10 @@ def analyze_cashflow(path, history):
                 if len(posting_year) != 4 or not posting_year.isascii() or not posting_year.isdigit():
                     raise ValueError(f'{number}행의 회계연도를 확인하세요.')
                 year = posting_year
-                basis = max((y for y in history if y <= year), default=None)
+                target = fiscal_year or year
+                basis = max((y for y in history if y <= target), default=None)
                 if basis is None:
-                    raise ValueError(f'{year}년도에 적용할 자금계산서 계정표가 없습니다.')
+                    raise ValueError(f'{target}년도에 적용할 자금계산서 계정표가 없습니다.')
                 catalog, ranks = account_catalog(history[basis])
                 if not catalog:
                     raise ValueError(f'{basis}년도 자금계산서에 분석할 계정이 없습니다.')
@@ -128,11 +143,7 @@ def analyze_cashflow(path, history):
             if account[0] == '교육외수입':
                 excluded += 1
                 continue
-            purchase = (account not in catalog and account[:2] == ('고정자산', '유형고정자산')
-                        and account[2] in PURCHASES)
-            if purchase:
-                account = (*account[:2], PURCHASES[account[2]])
-            sides = catalog.get(account)
+            sides, purchase = match_cash_account(catalog, account)
             if not sides:
                 excluded += 1
                 continue
@@ -159,3 +170,37 @@ def analyze_cashflow(path, history):
     if year is None:
         raise ValueError('원장에 분석할 거래 행이 없습니다.')
     return Cashflow(year, basis, included, excluded, dict(amounts), ranks)
+
+
+def saved_cashflow_years(folder):
+    return sorted((p.stem for p in folder.glob('[0-9][0-9][0-9][0-9].zip') if p.is_file()), reverse=True)
+
+
+def store_cashflow(folder, year, source, history):
+    if len(year) != 4 or not year.isascii() or not year.isdigit():
+        raise ValueError('회계연도를 선택하세요.')
+    source = Path(source)
+    folder.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=folder) as staging:
+        workbook = Path(staging) / ('workbook' + source.suffix.lower())
+        copyfile(source, workbook)
+        report = analyze_cashflow(workbook, history, fiscal_year=year)
+        summary = dict(filename=source.name, year=report.year, basis=report.basis,
+                       included=report.included, excluded=report.excluded, ranks=list(report.ranks),
+                       amounts=[[fund, project, side, path, str(amount)]
+                                for (fund, project, side, path), amount in report.amounts.items()])
+        archive = Path(staging) / 'report.zip'
+        with ZipFile(archive, 'w') as output:
+            output.write(workbook, workbook.name)
+            output.writestr('summary.json', json.dumps(summary, ensure_ascii=False), compress_type=ZIP_DEFLATED)
+        archive.replace(folder / f'{year}.zip')
+    return source.name, report
+
+
+def read_cashflow(folder, year):
+    with ZipFile(folder / f'{year}.zip') as archive:
+        data = json.loads(archive.read('summary.json'))
+    amounts = {(fund, project, side, tuple(path)): Decimal(amount)
+               for fund, project, side, path, amount in data['amounts']}
+    ranks = {tuple(key): i for i, key in enumerate(data['ranks'])}
+    return data['filename'], Cashflow(data['year'], data['basis'], data['included'], data['excluded'], amounts, ranks)

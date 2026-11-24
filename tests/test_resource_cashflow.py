@@ -1,7 +1,7 @@
 from openpyxl import Workbook
 import pytest
 
-from resource_cashflow import REQUIRED, analyze_cashflow
+from resource_cashflow import REQUIRED, analyze_cashflow, read_cashflow, saved_cashflow_years, store_cashflow
 
 
 INCOME = ('전입및기부수입', '국고보조금', '교육부')
@@ -64,6 +64,31 @@ def test_cashflow_rejects_unusable_uploads(tmp_path):
         analyze_cashflow(workbook(path, [(2025, *INCOME, '', '', 0, 1), (2026, *INCOME, '', '', 0, 1)]), history())
     with pytest.raises(ValueError, match='차변·대변'):
         analyze_cashflow(workbook(path, [(2025, *EXPENSE, '', '', '오류', 0)]), history())
+
+
+def test_saved_fiscal_years_are_independent_and_invalid_replacement_is_atomic(tmp_path):
+    from zipfile import ZipFile
+
+    folder = tmp_path / 'settings' / '재원별 수지분석'
+    source = sample(tmp_path / '교비.xlsx')
+    reference = history()
+    reference['2026'] = reference['2025']
+    first = store_cashflow(folder, '2025', source, reference)
+    assert first[1].year == '2026' and first[1].basis == '2025'
+    with ZipFile(folder / '2025.zip') as archive:
+        assert archive.read('workbook.xlsx') == source.read_bytes()
+    second = store_cashflow(folder, '2026', source, reference)
+    assert saved_cashflow_years(folder) == ['2026', '2025']
+    source.unlink()
+    assert read_cashflow(folder, '2025') == first
+    invalid = workbook(source, [(2025, *EXPENSE, '', '', '오류', 0)])
+    with pytest.raises(ValueError):
+        store_cashflow(folder, '2025', invalid, reference)
+    assert read_cashflow(folder, '2025') == first
+    replacement = workbook(source, [(2025, *EXPENSE, '사업1', '', 30, 0)])
+    store_cashflow(folder, '2025', replacement, reference)
+    assert read_cashflow(folder, '2025')[1].report('대사업별 요약') == [('사업1', 0, 30, -30)]
+    assert read_cashflow(folder, '2026') == second
 
 
 def test_multiple_funds_share_projects_and_include_unassigned(tmp_path):

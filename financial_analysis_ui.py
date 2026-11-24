@@ -344,6 +344,7 @@ def open_financial_analysis(parent,desktop,center,open_file):
         def done(result):
             nonlocal history,issues,sources,checked_year,checks,check_notes,shown,trend,series_paths,series_context
             history,issues,sources=result;checked_year=None;checks=[];check_notes=[]
+            if notebook.select()==str(cashflow_tab):refresh_cashflow_years()
             year_box.configure(values=list(history))
             if not history:
                 shown=[];trend=[];series_paths=[];series_context=None;update_series()
@@ -400,9 +401,11 @@ def open_financial_analysis(parent,desktop,center,open_file):
     from topic_ui import install_topics
     topic_refresh=install_topics(notebook,window,jobs,lambda:(history,selected.get(),scope.get(),unit.get(),preset,current_path()),display_table,open_file)
     from resource_cashflow_ui import install_cashflow_tab
-    cashflow_tab=install_cashflow_tab(notebook,window,jobs,lambda:history,display_table)
+    cashflow_tab,refresh_cashflow_years=install_cashflow_tab(
+        notebook,window,jobs,lambda:history,display_table,folder.parent/'재원별 수지분석')
     def tab_changed(event=None):
         if notebook.select()==str(cashflow_tab):
+            refresh_cashflow_years()
             cards.pack_forget()
             top.pack_forget()
             actions.pack_forget()

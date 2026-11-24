@@ -254,6 +254,10 @@ def main():
         from finance_ui import open_merge
         open_merge(root,desktop,center_window,open_result_file,is_ledger)
 
+    def other_tasks_view():
+        from finance_ui import open_other_tasks
+        open_other_tasks(root,desktop,center_window,open_result_file)
+
     def audit_view():
         from audit_ui import open_audit
         open_audit(root,desktop,center_window,open_result_file)
@@ -300,6 +304,7 @@ def main():
         ('5. 통합 작업',[
             ('원장통합',lambda:merge_view(True)),
             ('재무제표 Excel 통합',merge_view),
+            ('기타작업',other_tasks_view),
         ]),
         ('6. 업무 기록',[
             ('업무 기록장',work_records_view),
