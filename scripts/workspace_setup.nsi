@@ -122,11 +122,40 @@ Section "Work Space"
   install_files:
   SetRegView 64
   SetShellVarContext current
+!ifdef PATCH_DIR
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File "${PATCH_DIR}\patch.json"
+  File "${PAYLOAD}\WorkSpace.exe"
+  SetOutPath "$PLUGINSDIR\changed"
+  File /r "${PATCH_DIR}\changed\*"
+  DetailPrint "기존 파일을 확인하고 변경 사항을 적용하고 있습니다…"
+  SetOutPath "$INSTDIR"
+  ExecWait '"$PLUGINSDIR\WorkSpace.exe" --prepare-patch "$INSTDIR" "$PLUGINSDIR" "${VERSION}"' $0
+  IfErrors patch_failed
+  StrCmp $0 0 0 patch_failed
+  File /oname=.workspace-current.tmp "${PAYLOAD}\current.json"
+  System::Call 'kernel32::CopyFileW(w "$PLUGINSDIR\WorkSpace.exe", w "$INSTDIR\.workspace-launcher.tmp", i 0) i.r0'
+  StrCmp $0 0 patch_failed
+  System::Call 'kernel32::MoveFileExW(w "$INSTDIR\.workspace-launcher.tmp", w "$INSTDIR\WorkSpace.exe", i 9) i.r0'
+  StrCmp $0 0 patch_failed
+  System::Call 'kernel32::MoveFileExW(w "$INSTDIR\.workspace-current.tmp", w "$INSTDIR\current.json", i 9) i.r0'
+  StrCmp $0 0 patch_failed patch_ready
+  patch_failed:
+  Delete "$INSTDIR\.workspace-current.tmp"
+  Delete "$INSTDIR\.workspace-launcher.tmp"
+  IfSilent +2
+  MessageBox MB_ICONSTOP "패치를 적용할 수 없습니다. Work Space를 다시 열고 업데이트 창에서 '전체 설치본 받기'를 선택하세요."
+  SetErrorLevel 1
+  Abort
+  patch_ready:
+!else
   SetOutPath "$INSTDIR\versions\${VERSION}"
   File /r "${PAYLOAD}\versions\${VERSION}\*"
   SetOutPath "$INSTDIR"
   File "${PAYLOAD}\WorkSpace.exe"
   File "${PAYLOAD}\current.json"
+!endif
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\Work Space"
   CreateShortCut "$SMPROGRAMS\Work Space\Work Space.lnk" "$INSTDIR\WorkSpace.exe"
@@ -148,6 +177,7 @@ Section "Uninstall"
   Delete "$INSTDIR\current.json"
   Delete "$INSTDIR\Uninstall.exe"
   Delete "$INSTDIR\downloads\WorkSpace-Setup-*-x64.exe"
+  Delete "$INSTDIR\downloads\WorkSpace-Patch-*-x64.exe"
   Delete "$INSTDIR\downloads\WorkSpace-Setup-*-x64.part"
   RMDir "$INSTDIR\downloads"
   RMDir /r "$INSTDIR\versions\${VERSION}"

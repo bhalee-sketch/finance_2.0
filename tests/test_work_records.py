@@ -55,12 +55,12 @@ def test_workspace_open_edit_switch_paste_and_reopen(tmp_path):
             buttons = {b.text(): b for b in window._q.findChildren(tk.W.QPushButton)}
             with patch('work_records_ui.new_task_details', return_value=('월말 결산', 'sheet')):
                 buttons['새 업무'].click()
-            assert tabs.tabText(tabs.currentIndex()) == '수입·지출'
-            tabs.setCurrentIndex(1)
+            assert tabs.tabText(tabs.currentIndex()) == '자유 시트'
+            tabs.setCurrentIndex(2)
             buttons['행 추가'].click()
             editor = table.viewport().findChild(tk.W.QLineEdit)
             editor.setText('시산표')
-            tabs.setCurrentIndex(2)
+            tabs.setCurrentIndex(3)
             assert table.rowCount() == 0
             tk.application().clipboard().setText('자료 수집\t시산표 내려받기\n검산\t차대변 대사')
             QTest.keyClick(table, tk.C.Qt.Key.Key_V, tk.C.Qt.KeyboardModifier.ControlModifier)
@@ -68,9 +68,9 @@ def test_workspace_open_edit_switch_paste_and_reopen(tmp_path):
             table.setCurrentCell(1, 0, tk.C.QItemSelectionModel.SelectionFlag.ClearAndSelect)
             buttons['위로'].click()
             assert table.item(0, 0).text() == '검산'
-            tabs.setCurrentIndex(3)
-            table.pasteRequested.emit('지출 인식\t소모품비\t미지급금')
             tabs.setCurrentIndex(4)
+            table.pasteRequested.emit('지출 인식\t소모품비\t미지급금')
+            tabs.setCurrentIndex(5)
             table.pasteRequested.emit('매월 말일\t분개 검토')
             workspace.close_tab()
             workspace.open('g5c0')
@@ -78,7 +78,7 @@ def test_workspace_open_edit_switch_paste_and_reopen(tmp_path):
             table = window._q.findChild(RecordTable)
             tabs = window._q.findChild(tk.W.QTabBar)
             for index, (column, value) in enumerate([(0, '시산표'), (0, '검산'), (2, '미지급금'), (0, '매월 말일')]):
-                tabs.setCurrentIndex(index + 1)
+                tabs.setCurrentIndex(index + 2)
                 assert table.item(0, column).text() == value
         finally:
             root.destroy()
@@ -193,6 +193,7 @@ def test_create_cashbook_and_memo_from_task_list(tmp_path):
                 assert selector.currentItem().text() == name
 
             add('사업비', 'sheet')
+            window._q.findChild(tk.W.QTabBar).setCurrentIndex(1)
             assert selector.count() == 1 and table.columnCount() == 7
             table.pasteRequested.emit('11/01\t지원금 1차\t기관\t교부\t이체\t100,000\t\n'
                                       '11/05\t지원금 1차\t문구점\t소모품\t카드\t\t30,000\n'
@@ -215,5 +216,64 @@ def test_create_cashbook_and_memo_from_task_list(tmp_path):
             selector = window._q.findChild(tk.W.QListWidget)
             select('인수인계')
             assert window._q.findChild(tk.W.QPlainTextEdit).toPlainText() == expected
+        finally:
+            root.destroy()
+
+
+def test_free_sheet_parallel_tables_formulas_and_reopen(tmp_path):
+    from work_record_grid import FreeSheet
+
+    with patch.object(app, 'desktop', return_value=tmp_path), patch.object(tk.Tk, 'mainloop'), \
+            patch('startup_update.check_on_start'):
+        app.main()
+        root = tk._default_root
+        try:
+            workspace = root._launcher.workspace
+            workspace.open('g5c0')
+            window = workspace.tabs['g5c0']
+            button = next(b for b in window._q.findChildren(tk.W.QPushButton) if b.text() == '새 업무')
+            with patch('work_records_ui.new_task_details', return_value=('기금 관리', 'sheet')):
+                button.click()
+            tk.application().processEvents()
+            grid = window._q.findChild(FreeSheet)
+            model = grid.model()
+            assert grid.isVisible() and model.headerData(4, tk.C.Qt.Orientation.Horizontal) == 'E'
+            grid.setColumnWidth(2, 48)
+
+            def paste(row, col, raw):
+                grid.setCurrentIndex(model.index(row, col))
+                tk.application().clipboard().setText(raw)
+                QTest.keyClick(grid, tk.C.Qt.Key.Key_V, tk.C.Qt.KeyboardModifier.ControlModifier)
+
+            paste(0, 0, '배당 내역\t\t\t장학금 지급 내역')
+            paste(1, 0, '2019년\t34000000\n2020년\t28000000')
+            paste(1, 3, '2019년\t0\n2020년\t10773990')
+            paste(9, 1, '=SUM(B2:B9)')
+            paste(9, 4, '=SUM(E2:E9)')
+            paste(14, 4, '=B10-E10')
+            assert model.index(14, 4).data() == '51,226,010'
+            paste(1, 1, '35000000')
+            assert model.index(14, 4).data() == '52,226,010'
+            grid.setCurrentIndex(model.index(1, 1))
+            QTest.keyClick(grid, tk.C.Qt.Key.Key_Delete)
+            assert model.index(14, 4).data() == '17,226,010'
+            paste(19, 25, '다른 업무\t=E15')
+            assert model.index(19, 26).data() == '17,226,010'
+            grid.setCurrentIndex(model.index(14, 4))
+            grid.selectionModel().select(grid.currentIndex(), tk.C.QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            QTest.keyClick(grid, tk.C.Qt.Key.Key_C, tk.C.Qt.KeyboardModifier.ControlModifier)
+            assert tk.application().clipboard().text() == '=B10-E10'
+            grid.setCurrentIndex(model.index(0, 0))
+            grid.edit(model.index(0, 0))
+            editor = grid.viewport().findChild(tk.W.QLineEdit)
+            editor.setText('연도별 배당 내역')
+            workspace.close_tab()
+            workspace.open('g5c0')
+            grid = workspace.tabs['g5c0']._q.findChild(FreeSheet)
+            assert grid.columnWidth(2) == 48
+            model = grid.model()
+            assert model.index(0, 0).data() == '연도별 배당 내역'
+            assert model.index(14, 4).data(tk.C.Qt.ItemDataRole.EditRole) == '=B10-E10'
+            assert model.index(19, 26).data() == '17,226,010'
         finally:
             root.destroy()

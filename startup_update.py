@@ -61,6 +61,7 @@ def check_for_setup(root, folder, current, status):
     buttons.pack(fill='x')
     update = tk.ttk.Button(buttons, text='업데이트 하기', state='disabled')
     update.pack(side='right')
+    full = tk.ttk.Button(buttons, text='전체 설치본 받기')
     later = tk.ttk.Button(buttons, text='닫기', command=dialog.destroy)
     later.pack(side='right', padx=(0, 8))
     dialog.grab_set()
@@ -68,6 +69,7 @@ def check_for_setup(root, folder, current, status):
     network = N.QNetworkAccessManager(dialog._q)
     active = None
     output = None
+    full_setup = None
 
     def cleanup(*_):
         nonlocal active, output
@@ -91,6 +93,8 @@ def check_for_setup(root, folder, current, status):
         notice.set(str(error))
         status.set(f'현재 {current} · 업데이트 미완료')
         update.configure(text='다시 시도', state='normal', command=retry)
+        if full_setup is not None:
+            full.pack(side='left')
         later.configure(text='닫기')
 
     def request(url, consume, complete, retry):
@@ -164,6 +168,7 @@ def check_for_setup(root, folder, current, status):
         nonlocal output
         version, url = setup
         filename = url.rsplit('/', 1)[-1]
+        full.pack_forget()
         update.configure(state='disabled')
         later.configure(text='취소')
         notice.set(f'{filename} 다운로드 중…')
@@ -219,10 +224,18 @@ def check_for_setup(root, folder, current, status):
         reply.downloadProgress.connect(show_progress)
 
     def checked(data):
-        setup = latest_setup(current, json.loads(data))
+        nonlocal full_setup
+        releases = json.loads(data)
+        setup = latest_setup(current, releases)
         progress.pack_forget()
         if setup:
-            notice.set(f'현재 {current} · 새 버전 {setup[0]}')
+            method = '전체 설치'
+            if '/WorkSpace-Patch-' in setup[1]:
+                method = '변경 파일 패치'
+                full_setup = latest_setup(current, releases, prefer_patch=False)
+                full.configure(command=lambda: download(full_setup))
+                full.pack(side='left')
+            notice.set(f'현재 {current} · 새 버전 {setup[0]} · {method}')
             status.set(f'새 버전 {setup[0]} · 업데이트 가능')
             update.configure(text='업데이트 하기', state='normal', command=lambda: download(setup))
             later.configure(text='나중에')

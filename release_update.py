@@ -121,8 +121,8 @@ class GithubClient:
                 output.write(block);digest.update(block);progress(round(received/manifest['size']*100))
         if received!=manifest['size'] or digest.hexdigest()!=manifest['sha256']:raise UpdateError('다운로드 검증에 실패했습니다. 기존 버전은 유지됩니다.')
 
-def latest_setup(current, releases):
-    """Find the newest stable release that has a published Windows Setup asset."""
+def latest_setup(current, releases, *, prefer_patch=True):
+    """Choose the newest full Setup release, preferring a patch for the installed version."""
     current_key=version_key(current)
     latest=None
     best_key=current_key
@@ -136,6 +136,9 @@ def latest_setup(current, releases):
         filename=f'WorkSpace-Setup-{version}-x64.exe'
         assets={asset['name'] for asset in release['assets'] if asset['state']=='uploaded'}
         if filename in assets and filename+'.sha256' in assets:
+            patch=f'WorkSpace-Patch-{current}-to-{version}-x64.exe'
+            if prefer_patch and patch in assets and patch+'.sha256' in assets:
+                filename=patch
             best_key=key
             latest=version,f'https://github.com/{SETUP_REPOSITORY}/releases/download/{tag}/{filename}'
     return latest

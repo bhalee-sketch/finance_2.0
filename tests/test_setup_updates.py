@@ -35,14 +35,26 @@ def test_latest_setup_ignores_installed_and_older_releases():
     assert latest_setup('3.3.4', [release('3.3.4'), release('3.3.3')]) is None
 
 
-@pytest.mark.parametrize('action', ['skip', 'install', 'bad_hash', 'cancel', 'launch_error'])
+def test_patch_selection_requires_a_matching_pair_on_the_newest_release():
+    item = release('3.4.7')
+    name = 'WorkSpace-Patch-3.4.6-to-3.4.7-x64.exe'
+    item['assets'].append({'name': name, 'state': 'uploaded'})
+    assert '/WorkSpace-Setup-' in latest_setup('3.4.6', [item])[1]
+    item['assets'].append({'name': name + '.sha256', 'state': 'uploaded'})
+    assert latest_setup('3.4.6', [item])[1].endswith(name)
+    assert '/WorkSpace-Setup-' in latest_setup('3.4.5', [item])[1]
+    assert latest_setup('3.4.6', [item, release('3.4.8')])[0] == '3.4.8'
+
+
+@pytest.mark.parametrize('action', ['skip', 'install', 'patch', 'full', 'bad_hash', 'cancel', 'launch_error'])
 def test_foreground_setup_handoff(tmp_path, action):
     os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
     from PySide6 import QtNetwork
     import qt_ui as tk
     from startup_update import check_for_setup
 
-    filename = 'WorkSpace-Setup-3.4.5-x64.exe'
+    patch_name = 'WorkSpace-Patch-3.4.4-to-3.4.5-x64.exe'
+    filename = patch_name if action == 'patch' else 'WorkSpace-Setup-3.4.5-x64.exe'
     payload = b'MZ' + b'x' * 65536
     checksum = sha256(b'wrong' if action == 'bad_hash' else payload).hexdigest()
     paths = []
@@ -52,7 +64,10 @@ def test_foreground_setup_handoff(tmp_path, action):
         def do_GET(self):
             paths.append(self.path)
             if self.path.startswith('/repos/'):
-                content = json.dumps([release('3.4.5')]).encode()
+                item = release('3.4.5')
+                if action in ('patch', 'full'):
+                    item['assets'].extend({'name': n, 'state': 'uploaded'} for n in (patch_name, patch_name+'.sha256'))
+                content = json.dumps([item]).encode()
             elif self.path.endswith('.sha256'):
                 content = f'{checksum}  {filename}'.encode()
             else:
@@ -109,7 +124,10 @@ def test_foreground_setup_handoff(tmp_path, action):
                     return
                 if action == 'launch_error':
                     launch.side_effect = OSError('launch failed')
-                update.click()
+                if action == 'full':
+                    next(b for b in buttons if b.text() == '전체 설치본 받기').click()
+                else:
+                    update.click()
                 wait(lambda: len(paths) >= 2)
                 assert paths[1].endswith('/' + filename)
                 if action == 'cancel':

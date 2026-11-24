@@ -5,6 +5,7 @@ import sqlite3
 
 
 CASHBOOK = '수입·지출'
+FREE_SHEET = '자유 시트'
 SECTIONS = {
     CASHBOOK: ('거래일', '재원·입금 건', '입금처·사용처', '용도·내용', '거래 방식', '수입액', '지출액'),
     '서류 목록': ('서류명', '준비·발급처', '제출·보관처', '비고'),
@@ -28,6 +29,13 @@ class RecordBook:
                 value2 TEXT NOT NULL DEFAULT '', value3 TEXT NOT NULL DEFAULT '', value4 TEXT NOT NULL DEFAULT ''
             )""")
             db.execute('CREATE INDEX IF NOT EXISTS entry_order ON entries(task, section, position)')
+            db.execute("""CREATE TABLE IF NOT EXISTS grid_cells (
+                task INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                row_num INTEGER NOT NULL, col_num INTEGER NOT NULL, value TEXT NOT NULL,
+                PRIMARY KEY(task, row_num, col_num))""")
+            db.execute("""CREATE TABLE IF NOT EXISTS grid_widths (
+                task INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                col_num INTEGER NOT NULL, width INTEGER NOT NULL, PRIMARY KEY(task, col_num))""")
             # Upgrade existing notebooks in place, retaining their task and entry IDs.
             task_columns = {row[1] for row in db.execute('PRAGMA table_info(tasks)')}
             if 'format' not in task_columns:
@@ -80,8 +88,32 @@ class RecordBook:
             if data is None:
                 raise ValueError('업무를 찾을 수 없습니다.')
             used = {row[0] for row in db.execute('SELECT DISTINCT section FROM entries WHERE task=?', (task,))}
-            first = next((section for section in SECTIONS if section in used), CASHBOOK)
+            first = next((section for section in SECTIONS if section in used), FREE_SHEET)
+            if db.execute('SELECT 1 FROM grid_cells WHERE task=? LIMIT 1', (task,)).fetchone():
+                first = FREE_SHEET
             return data[0], data[1], first
+
+    def grid_values(self, task):
+        with self.transaction() as db:
+            return {(r, c): value for r, c, value in db.execute(
+                'SELECT row_num,col_num,value FROM grid_cells WHERE task=?', (task,))}
+
+    def save_grid(self, task, changes):
+        with self.transaction() as db:
+            db.executemany('INSERT INTO grid_cells VALUES(?,?,?,?) ON CONFLICT(task,row_num,col_num) '
+                           'DO UPDATE SET value=excluded.value',
+                           ((task, r, c, value) for (r, c), value in changes.items() if value))
+            db.executemany('DELETE FROM grid_cells WHERE task=? AND row_num=? AND col_num=?',
+                           ((task, r, c) for (r, c), value in changes.items() if not value))
+
+    def grid_widths(self, task):
+        with self.transaction() as db:
+            return dict(db.execute('SELECT col_num,width FROM grid_widths WHERE task=?', (task,)))
+
+    def save_grid_widths(self, task, widths):
+        with self.transaction() as db:
+            db.executemany('INSERT OR REPLACE INTO grid_widths VALUES(?,?,?)',
+                           ((task, col, width) for col, width in widths.items()))
 
     def save_memo(self, task, text, previous):
         with self.transaction() as db:

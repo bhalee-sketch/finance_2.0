@@ -9,7 +9,8 @@ from qt_ui import C, G, W, ttk, messagebox, simpledialog
 from ui_theme import dark_titlebar
 from statement_catalog import amount_text
 from work_record_sums import sheet_values
-from work_records import CASHBOOK, RecordBook, SECTIONS
+from work_record_grid import FreeSheet
+from work_records import CASHBOOK, FREE_SHEET, RecordBook, SECTIONS
 
 
 class SumDelegate(W.QStyledItemDelegate):
@@ -138,12 +139,17 @@ def open_work_records(parent, desktop, center):
     memo_original = None
     tabs = W.QTabBar()
     tabs.setExpanding(False)
-    for title in SECTIONS:
+    titles = [FREE_SHEET, *SECTIONS]
+    for title in titles:
         tabs.addTab(title)
     sheet_layout.addWidget(tabs)
 
-    row_bar = W.QHBoxLayout()
-    sheet_layout.addLayout(row_bar)
+    row_tools = W.QWidget()
+    row_bar = W.QHBoxLayout(row_tools)
+    row_bar.setContentsMargins(0, 0, 0, 0)
+    sheet_layout.addWidget(row_tools)
+    grid = FreeSheet(book)
+    sheet_layout.addWidget(grid, 1)
     table = RecordTable(0, 4)
     table.horizontalHeader().setToolTip('같은 탭의 셀 주소로 합계를 계산합니다. 예: =SUM(B2:B5)')
     table.setAlternatingRowColors(True)
@@ -187,12 +193,13 @@ def open_work_records(parent, desktop, center):
     displayed_task = displayed_section = None
 
     def finish_edit():
-        if table.state() != W.QAbstractItemView.State.EditingState:
-            return
-        editor = table.indexWidget(table.currentIndex())
-        if editor is not None:
-            table.commitData(editor)
-            table.closeEditor(editor, W.QAbstractItemDelegate.EndEditHint.NoHint)
+        grid.flush_widths()
+        for view in (grid, table):
+            if view.state() == W.QAbstractItemView.State.EditingState:
+                editor = view.indexWidget(view.currentIndex())
+                if editor is not None:
+                    view.commitData(editor)
+                    view.closeEditor(editor, W.QAbstractItemDelegate.EndEditHint.NoHint)
 
     def selected_task():
         item = selector.currentItem()
@@ -248,13 +255,25 @@ def open_work_records(parent, desktop, center):
             return
         pages.setCurrentWidget(sheet)
         with C.QSignalBlocker(tabs):
-            tabs.setCurrentIndex(list(SECTIONS).index(first))
+            tabs.setCurrentIndex(titles.index(first))
         load_rows()
 
     def load_rows(selected_id=None):
         nonlocal displayed_task, displayed_section
         finish_edit()
         displayed_task, displayed_section = selected_task(), section()
+        free = displayed_section == FREE_SHEET
+        grid.setVisible(free)
+        table.setVisible(not free)
+        row_tools.setVisible(not free)
+        if free:
+            balances.clear()
+            balance.hide()
+            selection_sum.clear()
+            grid.open_task(displayed_task)
+            grid.setCurrentIndex(grid.model().index(0, 0))
+            status.set('원하는 셀에 입력하거나 Excel 범위를 붙여넣으세요. 합계 =SUM(B2:B9) · 차액 =B10-E10')
+            return
         rows = book.rows(displayed_task, displayed_section)
         with C.QSignalBlocker(table):
             table.clearContents()
@@ -326,6 +345,17 @@ def open_work_records(parent, desktop, center):
         else:
             amounts = [value for value in numbers if value is not None]
             selection_sum.setText('선택 합계  ' + amount_text(sum(amounts)) if amounts else '')
+
+    def free_selection_changed(*_):
+        if displayed_section != FREE_SHEET:
+            return
+        model = grid.model()
+        selection = grid.selectionModel().selection()
+        values = [value for key, value in model.values.items() if selection.contains(model.index(*key))]
+        if any(isinstance(value, str) for value in values):
+            selection_sum.setText('선택 합계 · 수식 오류')
+        else:
+            selection_sum.setText('선택 합계  ' + amount_text(sum(values)) if values else '')
 
     def load_tasks(items, selected_id=None):
         with C.QSignalBlocker(selector):
@@ -418,6 +448,9 @@ def open_work_records(parent, desktop, center):
     memo.textChanged.connect(memo_timer.start)
     memo_timer.timeout.connect(save_memo)
     tabs.currentChanged.connect(lambda _: load_rows())
+    grid.model().status.connect(status.set)
+    grid.selectionModel().selectionChanged.connect(free_selection_changed)
+    grid.model().dataChanged.connect(free_selection_changed)
     table.itemChanged.connect(save_cell)
     table.itemSelectionChanged.connect(selection_changed)
     table.currentCellChanged.connect(lambda *_: selection_changed())

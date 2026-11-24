@@ -89,6 +89,13 @@ def activate(root,version,start=start_version):
     raise UpdateError('새 버전이 실행되지 않아 이전 버전으로 복구했습니다.')
 
 def main():
+    if sys.argv[1:2] == ['--prepare-patch']:
+        from patch_files import prepare_patch
+        try:
+            prepare_patch(*sys.argv[2:])
+        except (OSError, ValueError, KeyError, TypeError):
+            raise SystemExit(1)
+        return
     from taskbar_identity import set_taskbar_identity
     set_taskbar_identity()
     root=Path(sys.executable).resolve().parent

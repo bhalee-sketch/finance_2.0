@@ -70,6 +70,7 @@ jobs:
             exit 1
           }
           "WORKSPACE_SETUP=$setup" >> $env:GITHUB_ENV
+          "WORKSPACE_NSIS=$compiler" >> $env:GITHUB_ENV
       - name: Install and verify the desktop application
         run: |
           $install = Join-Path $env:RUNNER_TEMP "workspace installed"
@@ -124,12 +125,46 @@ jobs:
             Get-Process WorkSpaceApp -ErrorAction SilentlyContinue |
               Where-Object { $_.Path -eq "$folder\WorkSpaceApp.exe" } | Stop-Process -Force
           }
+      - name: Build and verify the incremental installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $baseTag = gh release view --json tagName --jq '.tagName'
+          if ($LASTEXITCODE -ne 0 -or $baseTag -notmatch '^v(\d+\.\d+\.\d+)$') { throw "Previous release not found." }
+          $base = $baseTag.Substring(1)
+          $filename = "WorkSpace-Setup-$base-x64.exe"
+          $previous = Join-Path $env:RUNNER_TEMP "previous-release"
+          gh release download $baseTag --pattern $filename --pattern "$filename.sha256" --dir $previous
+          if ($LASTEXITCODE -ne 0) { throw "Could not retrieve the previous Setup." }
+          $oldSetup = Join-Path $previous $filename
+          $expected = ((Get-Content "$oldSetup.sha256" -Raw).Trim() -split '\s+')[0]
+          if ((Get-FileHash $oldSetup -Algorithm SHA256).Hash -ne $expected) { throw "Previous Setup checksum mismatch." }
+          $installed = Join-Path $env:RUNNER_TEMP "patch test install"
+          $proc = Start-Process $oldSetup -ArgumentList "/S /D=$installed" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Baseline installation failed." }
+          $delta = Join-Path $env:RUNNER_TEMP "patch-files"
+          python scripts/build_patch.py "$installed" "$env:WORKSPACE_PAYLOAD" "$delta"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $patch = Join-Path $env:RUNNER_TEMP "WorkSpace-Patch-$base-to-$env:WORKSPACE_VERSION-x64.exe"
+          & $env:WORKSPACE_NSIS /INPUTCHARSET UTF8 "/DVERSION=$env:WORKSPACE_VERSION" "/DPAYLOAD=$env:WORKSPACE_PAYLOAD" "/DPATCH_DIR=$delta" "/DSETUP_FILE=$patch" scripts/workspace_setup.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/verify_setup_wizard.py "$patch" "$installed"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "from pathlib import Path; import sys; from patch_files import file_manifest,file_hash; from release_update import current_state; a,b=map(Path,sys.argv[1:]); v=current_state(b)['current']; assert current_state(a)['current']==v and file_manifest(a/'versions'/v)==file_manifest(b/'versions'/v) and file_hash(a/'WorkSpace.exe')==file_hash(b/'WorkSpace.exe')" "$installed" "$env:WORKSPACE_PAYLOAD"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-Item $patch).Length -lt (Get-Item $env:WORKSPACE_SETUP).Length) {
+            "WORKSPACE_PATCH=$patch" >> $env:GITHUB_ENV
+          }
       - name: Publish Setup and checksum
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $hash = (Get-FileHash $env:WORKSPACE_SETUP -Algorithm SHA256).Hash.ToLower()
-          $checksum = "$env:WORKSPACE_SETUP.sha256"
-          "$hash  $(Split-Path $env:WORKSPACE_SETUP -Leaf)" | Set-Content -Encoding ascii $checksum
-          gh release create "v$env:WORKSPACE_VERSION" "$env:WORKSPACE_SETUP" "$checksum" --target $env:GITHUB_SHA --title "Work Space $env:WORKSPACE_VERSION" --notes "Windows x64 Setup. Python 3.12 is bundled. This installer is unsigned. Work Space shows update progress and restarts automatically after installation."
+          $assets = @()
+          foreach ($file in @($env:WORKSPACE_SETUP, $env:WORKSPACE_PATCH)) {
+            if (!$file) { continue }
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            "$hash  $(Split-Path $file -Leaf)" | Set-Content -Encoding ascii "$file.sha256"
+            $assets += $file, "$file.sha256"
+          }
+          gh release create "v$env:WORKSPACE_VERSION" @assets --target $env:GITHUB_SHA --title "Work Space $env:WORKSPACE_VERSION" --notes "Windows x64 Setup. Python 3.12 is bundled. The Patch installer updates the exact starting version in its filename. Use Setup for a fresh install or repair."
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
