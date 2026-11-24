@@ -53,12 +53,14 @@ def test_workspace_open_edit_switch_paste_and_reopen(tmp_path):
             table = window._q.findChild(RecordTable)
             tabs = window._q.findChild(tk.W.QTabBar)
             buttons = {b.text(): b for b in window._q.findChildren(tk.W.QPushButton)}
-            with patch('work_records_ui.simpledialog.askstring', return_value='월말 결산'):
+            with patch('work_records_ui.new_task_details', return_value=('월말 결산', 'sheet')):
                 buttons['새 업무'].click()
+            assert tabs.tabText(tabs.currentIndex()) == '수입·지출'
+            tabs.setCurrentIndex(1)
             buttons['행 추가'].click()
             editor = table.viewport().findChild(tk.W.QLineEdit)
             editor.setText('시산표')
-            tabs.setCurrentIndex(1)
+            tabs.setCurrentIndex(2)
             assert table.rowCount() == 0
             tk.application().clipboard().setText('자료 수집\t시산표 내려받기\n검산\t차대변 대사')
             QTest.keyClick(table, tk.C.Qt.Key.Key_V, tk.C.Qt.KeyboardModifier.ControlModifier)
@@ -66,9 +68,9 @@ def test_workspace_open_edit_switch_paste_and_reopen(tmp_path):
             table.setCurrentCell(1, 0, tk.C.QItemSelectionModel.SelectionFlag.ClearAndSelect)
             buttons['위로'].click()
             assert table.item(0, 0).text() == '검산'
-            tabs.setCurrentIndex(2)
-            table.pasteRequested.emit('지출 인식\t소모품비\t미지급금')
             tabs.setCurrentIndex(3)
+            table.pasteRequested.emit('지출 인식\t소모품비\t미지급금')
+            tabs.setCurrentIndex(4)
             table.pasteRequested.emit('매월 말일\t분개 검토')
             workspace.close_tab()
             workspace.open('g5c0')
@@ -76,7 +78,7 @@ def test_workspace_open_edit_switch_paste_and_reopen(tmp_path):
             table = window._q.findChild(RecordTable)
             tabs = window._q.findChild(tk.W.QTabBar)
             for index, (column, value) in enumerate([(0, '시산표'), (0, '검산'), (2, '미지급금'), (0, '매월 말일')]):
-                tabs.setCurrentIndex(index)
+                tabs.setCurrentIndex(index + 1)
                 assert table.item(0, column).text() == value
         finally:
             root.destroy()
@@ -137,5 +139,81 @@ def test_sum_selection_edit_and_reopen(tmp_path):
             table = workspace.tabs['g5c0']._q.findChild(RecordTable)
             assert displayed(table, 0, 1) == '2,000.25'
             assert book.rows(task, '서류 목록')[0][2] == '=SUM(A2)'
+        finally:
+            root.destroy()
+
+
+def test_existing_notebook_migration_keeps_values_and_formula(tmp_path):
+    import sqlite3
+
+    path = tmp_path / 'records.sqlite3'
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE tasks (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)')
+        db.execute('CREATE TABLE entries (id INTEGER PRIMARY KEY, task INTEGER, section TEXT, position INTEGER, '
+                   'value1 TEXT, value2 TEXT, value3 TEXT, value4 TEXT)')
+        db.execute("INSERT INTO tasks VALUES (8, '결산')")
+        db.execute("INSERT INTO entries VALUES (12, 8, '서류 목록', 1, '10', '=SUM(A1)', '', '')")
+    book = RecordBook(path)
+    assert book.task_content(8) == ('sheet', '', '서류 목록')
+    assert book.rows(8, '서류 목록') == [(12, '10', '=SUM(A1)', '', '')]
+    book.write_cells(8, '수입·지출', [], 0, [['2026-11-24', '사업비', '대학', '입금', '계좌', '100', '']])
+    assert RecordBook(path).rows(8, '수입·지출')[0][-2:] == ('100', '')
+
+
+def test_create_cashbook_and_memo_from_task_list(tmp_path):
+    with patch.object(app, 'desktop', return_value=tmp_path), patch.object(tk.Tk, 'mainloop'), \
+            patch('startup_update.check_on_start'):
+        app.main()
+        root = tk._default_root
+        try:
+            workspace = root._launcher.workspace
+            workspace.open('g5c0')
+            window = workspace.tabs['g5c0']
+            selector = window._q.findChild(tk.W.QListWidget)
+            table = window._q.findChild(RecordTable)
+            memo = window._q.findChild(tk.W.QPlainTextEdit)
+            balance = next(label for label in window._q.findChildren(tk.W.QLabel)
+                           if label.accessibleName() == '수입·지출 합계')
+            create = next(b for b in window._q.findChildren(tk.W.QPushButton) if b.text() == '새 업무')
+
+            def add(name, mode):
+                def enter():
+                    dialog = tk.application().activeModalWidget()
+                    dialog.findChild(tk.W.QLineEdit).setText(name)
+                    options = dialog.findChild(tk.W.QComboBox)
+                    options.setCurrentIndex(options.findData(mode))
+                    dialog.findChild(tk.W.QDialogButtonBox).button(tk.W.QDialogButtonBox.StandardButton.Ok).click()
+                tk.C.QTimer.singleShot(0, enter)
+                create.click()
+
+            def select(name):
+                item, = selector.findItems(name, tk.C.Qt.MatchFlag.MatchExactly)
+                QTest.mouseClick(selector.viewport(), tk.C.Qt.MouseButton.LeftButton,
+                                 pos=selector.visualItemRect(item).center())
+                assert selector.currentItem().text() == name
+
+            add('사업비', 'sheet')
+            assert selector.count() == 1 and table.columnCount() == 7
+            table.pasteRequested.emit('11/01\t지원금 1차\t기관\t교부\t이체\t100,000\t\n'
+                                      '11/05\t지원금 1차\t문구점\t소모품\t카드\t\t30,000\n'
+                                      '11/06\t후원금\t동문\t기부\t이체\t50,000\t')
+            table.setCurrentCell(1, 0)
+            assert '잔액 120,000원' in balance.text()
+            assert '잔액 70,000원' in balance.text().splitlines()[1]
+            add('인수인계', 'memo')
+            assert selector.count() == 2 and memo.isVisible() and not table.isVisible()
+            memo.insertPlainText('11월 지원금 사용 내역\n정산 예정')
+            select('사업비')  # Switch before the delayed autosave runs.
+            assert table.isVisible() and table.item(1, 6).text() == '30,000'
+            select('인수인계')
+            assert memo.toPlainText().endswith('정산 예정')
+            memo.insertPlainText(' (확인)')
+            expected = memo.toPlainText()
+            workspace.close_tab()
+            workspace.open('g5c0')
+            window = workspace.tabs['g5c0']
+            selector = window._q.findChild(tk.W.QListWidget)
+            select('인수인계')
+            assert window._q.findChild(tk.W.QPlainTextEdit).toPlainText() == expected
         finally:
             root.destroy()

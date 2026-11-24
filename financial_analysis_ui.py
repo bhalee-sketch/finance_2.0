@@ -399,7 +399,17 @@ def open_financial_analysis(parent,desktop,center,open_file):
     analysis_tree.bind('<Double-1>',lambda e:ledger())
     from topic_ui import install_topics
     topic_refresh=install_topics(notebook,window,jobs,lambda:(history,selected.get(),scope.get(),unit.get(),preset,current_path()),display_table,open_file)
+    from resource_cashflow_ui import install_cashflow_tab
+    cashflow_tab=install_cashflow_tab(notebook,window,jobs,lambda:history,display_table)
     def tab_changed(event=None):
+        if notebook.select()==str(cashflow_tab):
+            cards.pack_forget()
+            top.pack_forget()
+            actions.pack_forget()
+            return
+        if not top.winfo_manager():
+            top.pack(fill='x',pady=(0,6),before=notebook)
+            actions.pack(side='right')
         if notebook.select()==str(analysis_tab):
             if not cards.winfo_manager():cards.pack(fill='x',pady=(3,10),before=notebook)
         else:cards.pack_forget()

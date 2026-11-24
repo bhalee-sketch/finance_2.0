@@ -1250,7 +1250,21 @@ class Messages:
 messagebox=Messages
 class Inputs:
     @staticmethod
-    def askstring(title,prompt,**kw):application();text,ok=W.QInputDialog.getText(qwidget(kw.get('parent')),title,prompt,text=str(kw.get('initialvalue','')));return text if ok else None
+    def askstring(title,prompt,**kw):
+        application()
+        from appearance import controller
+        from ui_theme import dark_titlebar
+        parent=kw.get('parent')
+        dialog=W.QInputDialog(qwidget(parent))
+        dialog.setWindowTitle(title)
+        dialog.setLabelText(prompt)
+        dialog.setTextValue(str(kw.get('initialvalue','')))
+        appearance=controller(parent if parent is not None else _default_root)
+        dark_titlebar(dialog,theme=appearance.theme if appearance else 'light')
+        try:
+            return dialog.textValue() if dialog.exec()==W.QDialog.DialogCode.Accepted else None
+        finally:
+            dialog.deleteLater()
     @staticmethod
     def askinteger(title,prompt,**kw):application();v,ok=W.QInputDialog.getInt(qwidget(kw.get('parent')),title,prompt,int(kw.get('initialvalue',0)),int(kw.get('minvalue',-2147483647)),int(kw.get('maxvalue',2147483647)));return v if ok else None
 simpledialog=Inputs
