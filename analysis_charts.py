@@ -87,10 +87,10 @@ def draw_curve(canvas,points,color):
     if len(points)>1:canvas.create_line(*[v for point in points for v in point],fill=color,width=2.5,smooth=False,capstyle='round',joinstyle='round')
 
 
-def top_legend(canvas,names,w,y_offset=0):
+def top_legend(canvas,names,w,y_offset=0,colors=COLORS):
     count=min(3,max(1,len(names)));cell=min(210,(w-110)/count);start=max(90,w*.57-cell*count/2)
     for j,name in enumerate(names):
-        x=start+(j%count)*cell;y=16+y_offset+(j//count)*21;color=COLORS[j%len(COLORS)]
+        x=start+(j%count)*cell;y=16+y_offset+(j//count)*21;color=colors[j%len(colors)]
         canvas.create_line(x,y,x+16,y,fill=color,width=3,capstyle='round')
         canvas.create_text(x+22,y,text=name,anchor='w',fill=color,font=('맑은 고딕',9))
     return y_offset+max(52,36+math.ceil(len(names)/count)*21)
@@ -290,7 +290,7 @@ def grant_bars(canvas,headers,rows,counts=None):
 
 
 @polished_chart
-def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,whole_won=False,show_total=False):
+def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,whole_won=False,show_total=False,colors=COLORS):
     """선택 과목의 막대를 그리고, 요청 시 각 구간의 합계선을 같은 축에 표시한다."""
     canvas.delete('all');w=max(canvas.winfo_width(),300);h=max(canvas.winfo_height(),220)
     scale,unit=(1,'원') if whole_won else (1e6,'백만원')
@@ -321,7 +321,7 @@ def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,wh
             secondary_height=math.ceil(bounds[3]-bounds[1])+4
             canvas.delete(sample)
     right=w-max(25,secondary_width/2+6)
-    top=top_legend(canvas,legend,w,24 if legend_below_title else 0)+12;bottom=h-35
+    top=top_legend(canvas,legend,w,24 if legend_below_title else 0,colors)+12;bottom=h-35
     slot=(right-left)/len(rows);bw=slot*.72/max(1,len(names))
     label_rows=0
     if secondary_width:
@@ -347,7 +347,7 @@ def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,wh
         canvas.create_text(cx,bottom+(8 if whole_won else 16),text=row[0],fill='#C9D8E8',font=('맑은 고딕',9),**period_anchor)
         for j,value in enumerate(row[1:]):
             if value is None:continue
-            color=COLORS[j%len(COLORS)];x=cx+bw*(j-len(names)/2)
+            color=colors[j%len(colors)];x=cx+bw*(j-len(names)/2)
             bar_end=y(value)
             item=canvas.create_rectangle(x,bar_end,x+bw-2,y(0),fill=color,outline='')
             bind_tip(canvas,item,detail(row[0],names[j],value))
@@ -364,7 +364,7 @@ def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,wh
             else:
                 canvas.create_text(x+bw/2,bar_end+(-10 if value>=0 else 10),text=format_value(value),fill=color,font=('맑은 고딕',9,'bold'))
 
-    color=COLORS[len(names)%len(COLORS)]
+    color=colors[len(names)%len(colors)]
     previous=None
     for i,total in enumerate(totals):
         if total is None:

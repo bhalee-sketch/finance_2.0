@@ -43,6 +43,13 @@ def defer_workflow_windows(root):
             window._q.setAttribute(C.Qt.WidgetAttribute.WA_DontShowOnScreen,False)
             if visible:window._q.show()
 
+class WorkspaceStyle(W.QProxyStyle):
+    def polish(self, target):
+        if isinstance(target, W.QAbstractButton) and not target.testAttribute(C.Qt.WidgetAttribute.WA_SetCursor):
+            target.setCursor(C.Qt.CursorShape.PointingHandCursor)
+        return super().polish(target)
+
+
 def application():
     global _app
     if _app is None:
@@ -51,7 +58,7 @@ def application():
         _app.setOrganizationName('WorkSpace')
         icon=Path(__file__).resolve().parent/'assets'/'workspace.ico'
         if icon.is_file():_app.setWindowIcon(G.QIcon(str(icon)))
-        _app.setStyle('Fusion')
+        _app.setStyle(WorkspaceStyle('Fusion'))
         _app.setQuitOnLastWindowClosed(False)
     return _app
 

@@ -3,8 +3,8 @@ from qt_ui import ttk
 
 
 class ContractButtons:
-    def __init__(self,tree,command):
-        self.tree=tree;self.command=command;self.buttons=[];self.pending=False
+    def __init__(self,tree,column,command):
+        self.tree=tree;self.column=str(column);self.command=command;self.buttons=[];self.pending=False
         for option in ('xscrollcommand','yscrollcommand'):
             previous=tree.cget(option)
             def scroll(*values,previous=previous):
@@ -28,7 +28,7 @@ class ContractButtons:
         self.pending=False
         if not self.tree.winfo_exists():return
         for iid,button in self.buttons:
-            bounds=self.tree.bbox(iid,'11') if self.tree.exists(iid) else ()
+            bounds=self.tree.bbox(iid,self.column) if self.tree.exists(iid) else ()
             if not bounds:button.place_forget();continue
             x,y,w,h=bounds
             # Hide partially clipped buttons instead of covering adjacent columns/headings.

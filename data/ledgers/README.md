@@ -17,6 +17,7 @@ payload는 finance_data.LEDGER_COLUMNS 순서, raw_json은 imports.headers_json 
 `python ledger_database.py "data/ledgers/originals/2025회계연도 계정별원장.xlsx" --year 2025`
 동일 파일 재실행은 중복을 만들지 않으며 같은 연도의 다른 파일은 덮어쓰지 않습니다.
 배포할 때 data/ledgers/ledgers.sqlite3를 같은 상대 경로에 포함해야 합니다.
-'원장 파일 선택'은 외부 파일을 임시 조회하며 DB를 변경하지 않습니다.
+'원장등록'으로 가져온 자료는 바탕화면 `settings/계정별원장.sqlite3`에 회계연도별로 저장합니다.
+조회와 분석에서는 같은 연도에 등록한 자료를 우선 사용합니다. 기존 연도를 다시 등록하면 확인 후 해당 연도만 교체합니다.
 
 단위 검증: `python tests/test_ledger_database.py`

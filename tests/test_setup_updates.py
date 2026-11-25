@@ -146,12 +146,13 @@ def test_foreground_setup_handoff(tmp_path, action):
                     next(b for b in buttons if b.text() == '전체 설치본 받기').click()
                 else:
                     update.click()
+                assert not any(button.isVisible() for button in buttons)
                 wait(lambda: len(paths) >= 2)
                 assert paths[1].endswith('/' + filename)
                 if action == 'cancel':
                     assert dialog._q.frameGeometry() == initial_frame
                     assert dialog._q.findChild(tk.W.QProgressBar).isVisible()
-                    next(b for b in buttons if b.text() == '취소').click()
+                    dialog._q.close()
                     paused.set()
                     assert root.winfo_exists()
                     assert not list((tmp_path / 'downloads').iterdir())
@@ -159,6 +160,7 @@ def test_foreground_setup_handoff(tmp_path, action):
                     return
                 if action in ('bad_hash', 'launch_error'):
                     wait(lambda: update.isEnabled() and update.text() == '다시 시도')
+                    assert {b.text() for b in buttons if b.isVisible()} == {'닫기', '다시 시도'}
                     assert root.winfo_exists()
                     if action == 'bad_hash':
                         assert not list((tmp_path / 'downloads').iterdir())

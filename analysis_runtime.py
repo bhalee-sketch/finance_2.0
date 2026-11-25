@@ -89,9 +89,12 @@ def load_analysis_history(unused_folder=None,*,materialize_sources=True):
 
 def program_ledger_paths(settings):
     from finance_data import discover_ledger_years
-    from ledger_database import discover_years as database_years
+    from ledger_database import discover_years as database_years,registered_database
     external=discover_ledger_years(Path(settings)/'lodges')
     external.update(database_years())
+    registered = registered_database(settings)
+    if registered.is_file():
+        external.update(database_years(registered))
     return dict(sorted(external.items(),reverse=True))
 
 

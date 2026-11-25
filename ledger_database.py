@@ -5,12 +5,17 @@ from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 import zlib
 
 from finance_data import LEDGER_COLUMNS, rows, text, money, date_text
 
 DATABASE = Path(__file__).resolve().parent / 'data' / 'ledgers' / 'ledgers.sqlite3'
+
+
+def registered_database(settings):
+    return Path(settings) / '계정별원장.sqlite3'
 
 
 def read_connection(database):
@@ -20,7 +25,7 @@ def read_connection(database):
 def discover_years(database=DATABASE):
     database = Path(database)
     if not database.exists():return {}
-    with read_connection(database) as connection:
+    with closing(read_connection(database)) as connection:
         return {year: database for year, in connection.execute('SELECT fiscal_year FROM imports ORDER BY fiscal_year DESC')}
 
 
@@ -31,22 +36,23 @@ def encode(row):
 def source_records(source):
     stream = rows(source)
     try:
-        headers = [text(v) for v in next(stream)]
-        if len(set(headers)) != len(headers) or any(c not in headers for c in LEDGER_COLUMNS):
+        headers = [text(v) for v in next(stream, [])]
+        if any(headers.count(c) != 1 for c in LEDGER_COLUMNS):
             raise ValueError('원장 열 제목이 중복되거나 필수 열이 없습니다.')
         for number, values in enumerate(stream, 2):
             if not any(text(v) for v in values):continue
             raw = dict(zip(headers, values))
             record = {c: str(money(raw.get(c))) if c in ('차변', '대변') else
                       date_text(raw.get(c)) if c == '회계일자' else text(raw.get(c)) for c in LEDGER_COLUMNS}
-            yield number, record, raw, headers
+            yield number, record, [values[i] if i < len(values) else None for i in range(len(headers))], headers
     finally:
         stream.close()
 
 
-def import_ledger(source, year, database=DATABASE):
+def import_ledger(source, year, database=DATABASE, *, allow_replace=False):
     source, database = Path(source), Path(database)
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    with source.open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database)
     connection.execute('PRAGMA foreign_keys=ON')
@@ -61,18 +67,27 @@ def import_ledger(source, year, database=DATABASE):
         if not any(column[1]=='raw_json' for column in connection.execute('PRAGMA table_info(entries)')):
             raise ValueError('배포용 원장 DB입니다. 원본 검증과 가져오기는 저장소의 전체 원장 DB에서 실행하세요.')
         with connection:
+            connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute('SELECT sha256 FROM imports WHERE fiscal_year=?', (str(year),)).fetchone()
-            if existing and existing[0] != digest:raise ValueError('같은 연도의 다른 원장이 있어 덮어쓰지 않습니다.')
+            if existing and existing[0] != digest:
+                if not allow_replace:raise ValueError('같은 연도의 다른 원장이 있어 덮어쓰지 않습니다.')
+                connection.execute('DELETE FROM entries WHERE fiscal_year=?', (str(year),))
+                connection.execute('DELETE FROM imports WHERE fiscal_year=?', (str(year),))
+                existing = None
             count = 0; totals = defaultdict(Decimal); headers = []; payload_digest = hashlib.sha256()
             if not existing:
                 connection.execute('INSERT INTO imports VALUES(?,?,?,?,0)', (str(year), source.name, digest, '[]'))
             for number, record, raw, headers in source_records(source):
+                fiscal_year = re.fullmatch(r'(20\d{2})(?:회계연도|년도|년)?', record['년도'])
+                if record['년도'] and (not fiscal_year or fiscal_year[1] != str(year)):
+                    raise ValueError(f"{number}행의 년도({record['년도']})가 등록 연도({year})와 다릅니다.")
                 payload = zlib.compress(encode([record[c] for c in LEDGER_COLUMNS]).encode())
-                raw_json = zlib.compress(encode([raw.get(c) for c in headers]).encode())
+                raw_json = zlib.compress(encode(raw).encode())
                 payload_digest.update(str(number).encode()+payload+raw_json)
                 if not existing:connection.execute('INSERT INTO entries VALUES(?,?,?,?)', (str(year), number, payload, raw_json))
                 count += 1
                 for c in ('차변', '대변'):totals[c] += Decimal(record[c])
+            if not count:raise ValueError('등록할 원장 거래가 없습니다.')
             if not existing:
                 connection.execute('UPDATE imports SET headers_json=?,row_count=? WHERE fiscal_year=?', (encode(headers), count, str(year)))
             db_digest = hashlib.sha256(); db_count = 0; db_totals = defaultdict(Decimal)

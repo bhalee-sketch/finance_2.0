@@ -8,10 +8,10 @@ from finance_ui import shell,fill
 from responsive_ui import wrapping_row
 from statement_ui import table,Jobs
 from statement_catalog import amount_text
-from analysis_charts import bars
-from rental_data import load_rentals,status,forecasts,contract_pdfs,table_rows,HEADERS,rounded_won,grouped_forecasts,update_rental,create_rental,clean,parse_date
+from analysis_charts import bars,COLORS
+from rental_data import load_rentals,status,forecasts,contract_pdfs,table_rows,table_totals,HEADERS,AMOUNT_COLUMNS,rounded_won,grouped_forecasts,update_rental,create_rental,clean,parse_date
 
-CONTRACT_COLUMN_WIDTHS = (78, 137, 246, 89, 124, 154, 66, 101, 119, 104, 89, 84, 130)
+CONTRACT_COLUMN_WIDTHS = (68, 78, 137, 246, 89, 124, 154, 66, 101, 119, 104, 89, 84, 130)
 PERIOD_COLUMN = HEADERS.index('임대기간')
 CONTRACT_BUTTON_COLUMN = HEADERS.index('계약서 보기')
 
@@ -28,7 +28,7 @@ def display_period(value):
 def open_rentals(parent,desktop,center,open_file):
     window,body,message,jobs=shell(parent,'임대사항',center,show_status=False)
     settings=desktop()/'settings';folder=settings/'contract'
-    records=[];shown=[];issues=[];projection=[];group_headers=[];group_monthly=[];group_annual=[]
+    records=[];issues=[];projection=[];group_headers=[];group_monthly=[];group_annual=[]
     toolbar=wrapping_row(body);toolbar.pack(fill='x',pady=(0,8))
     centered=tk.C.Qt.AlignmentFlag.AlignVCenter
 
@@ -62,13 +62,19 @@ def open_rentals(parent,desktop,center,open_file):
     controls=control_group()
     add_controls(controls,ttk.Label(controls,text='기준일'),ttk.Entry(controls,textvariable=asof,width=12))
     controls=control_group()
-    add_controls(controls,ttk.Label(controls,text='예상 연도'),
-                 ttk.Spinbox(controls,textvariable=year,from_=1900,to=9998,width=6))
+    this_year=date.today().year
+    year_box=ttk.Combobox(controls,textvariable=year,values=list(range(this_year+5,this_year-11,-1)),width=12)
+    year_box._q.setAccessibleName('예상 연도')
+    year_box._q.setInsertPolicy(tk.W.QComboBox.InsertPolicy.NoInsert)
+    year_box._q.setValidator(tk.G.QIntValidator(1900,9998,year_box._q))
+    year_box._q.lineEdit().setStyleSheet('background: transparent; border: none; padding: 0;')
+    add_controls(controls,ttk.Label(controls,text='예상 연도'),year_box)
+    year_box.bind('<<ComboboxSelected>>',lambda e:render())
+    year_box._q.lineEdit().returnPressed.connect(lambda:render())
     actions=control_group()
-    refresh_button=ttk.Button(actions,text='새로고침',command=lambda:refresh())
     new_button=ttk.Button(actions,text='신규 입력',command=lambda:open_form())
-    add_controls(actions,ttk.Button(actions,text='적용',command=lambda:render()),refresh_button,new_button)
-    jobs.controls.extend((refresh_button,new_button))
+    add_controls(actions,ttk.Button(actions,text='적용',command=lambda:render()),new_button)
+    jobs.controls.append(new_button)
     controls=control_group()
     add_controls(controls,ttk.Entry(controls,textvariable=query,width=18))
     row_height=max(child.winfo_reqheight() for child in toolbar.winfo_children())
@@ -83,38 +89,74 @@ def open_rentals(parent,desktop,center,open_file):
         ttk.Label(card,textvariable=value,style='Accent.TLabel',wraplength=195).pack(fill='x',anchor='w')
     note(text='연 임대수익 우선 · 월 환산 = 연액 ÷ 12 · 월별 예상은 계약 유효일수로 안분 · 달력연도 기준\n실제 납부시점·자동 갱신·부가세 가감은 미반영합니다. 보증금은 원자료 기재액이며 반환 여부를 판정하지 않습니다.').pack(fill='x',pady=6)
     notebook=ttk.Notebook(body);notebook.pack(fill='both',expand=True)
-    contract_tab=ttk.Frame(notebook);notebook.add(contract_tab,text='계약 및 보증금')
-    tree=table(contract_tab,HEADERS,horizontal_scroll=False,column_preferences=False)
-    tree.configure(selectmode='browse',style='Rental.Treeview')
-    view=tree._q
-    view.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    header=view.horizontalHeader()
-    header.setMinimumSectionSize(1)
-    header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
+    def contract_table(title,expired=False):
+        tab=ttk.Frame(notebook);notebook.add(tab,text=title)
+        headers=list(HEADERS)
+        column_widths=list(CONTRACT_COLUMN_WIDTHS)
+        if expired:
+            headers[HEADERS.index('상태')]='퇴거일'
+            column_widths[HEADERS.index('상태')]=100
+        shown=[]
+        tree=table(tab,headers,horizontal_scroll=False,column_preferences=False)
+        tree.configure(selectmode='browse',style='Rental.Treeview')
+        view=tree._q
+        view.setHorizontalScrollBarPolicy(tk.C.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        header=view.horizontalHeader()
+        header.setMinimumSectionSize(1)
+        header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Fixed)
 
-    def fit_contract_columns(event=None):
-        available=view.viewport().width()
-        if available<len(CONTRACT_COLUMN_WIDTHS) or header.count()!=len(CONTRACT_COLUMN_WIDTHS):
-            return
-        widths=list(CONTRACT_COLUMN_WIDTHS)
-        period_width=tk.G.QFontMetrics(tree._font().q).horizontalAdvance('0000.00.00 ~ 0000.00.00')+8
-        widths[PERIOD_COLUMN]=max(widths[PERIOD_COLUMN],period_width)
-        # Give up optional notes space before compressing the transaction columns.
-        widths[-1]=max(54,min(widths[-1],available-sum(widths[:-1])))
-        total=sum(widths)
-        if total>available:
-            button_width=min(76,available//5)
-            other_width=total-widths[CONTRACT_BUTTON_COLUMN]
-            widths=[max(1,width*(available-button_width)//other_width) for width in widths]
-            widths[CONTRACT_BUTTON_COLUMN]=button_width
-        for i,(column,width) in enumerate(zip(tree.cget('columns'),widths)):
-            if header.sectionSize(i)!=width:
-                tree.column(column,width=width,stretch=False)
+        def fit_contract_columns(event=None):
+            available=view.viewport().width()
+            if available<len(CONTRACT_COLUMN_WIDTHS) or header.count()!=len(CONTRACT_COLUMN_WIDTHS):
+                return
+            widths=list(column_widths)
+            period_width=tk.G.QFontMetrics(tree._font().q).horizontalAdvance('0000.00.00 ~ 0000.00.00')+8
+            widths[PERIOD_COLUMN]=max(widths[PERIOD_COLUMN],period_width)
+            # Give up optional notes space before compressing the transaction columns.
+            widths[-1]=max(54,min(widths[-1],available-sum(widths[:-1])))
+            total=sum(widths)
+            if total>available:
+                button_width=min(76,available//5)
+                other_width=total-widths[CONTRACT_BUTTON_COLUMN]
+                widths=[max(1,width*(available-button_width)//other_width) for width in widths]
+                widths[CONTRACT_BUTTON_COLUMN]=button_width
+            for i,(column,width) in enumerate(zip(tree.cget('columns'),widths)):
+                if header.sectionSize(i)!=width:
+                    tree.column(column,width=width,stretch=False)
 
-    tree.bind('<Configure>',fit_contract_columns,add='+')
-    ttk.Style(tree).configure('Rental.Treeview',rowheight=30)
-    from rental_row_buttons import ContractButtons
-    pdf_buttons=ContractButtons(tree,lambda record:view_contract(record))
+        tree.bind('<Configure>',fit_contract_columns,add='+')
+        ttk.Style(tree).configure('Rental.Treeview',rowheight=30)
+        from rental_row_buttons import ContractButtons
+        pdf_buttons=ContractButtons(tree,CONTRACT_BUTTON_COLUMN,lambda record:view_contract(record))
+        def edit_record(event):
+            if jobs.busy or tree.identify_region(event.x,event.y)!='cell':return
+            iid=tree.identify_row(event.y)
+            if not iid or tree.identify_column(event.x)==f'#{CONTRACT_BUTTON_COLUMN+1}':return
+            index=tree.index(iid)
+            if index>=len(shown):return
+            open_form(shown[index])
+        tree.bind('<Double-1>',edit_record)
+        def populate(items,ref):
+            nonlocal shown
+            shown=items
+            rows=table_rows(shown,ref)
+            for row,record in zip(rows,shown):
+                if expired:row[HEADERS.index('상태')]=record['exited'].isoformat()
+                row[0]=clean(row[0])
+                row[PERIOD_COLUMN]=display_period(row[PERIOD_COLUMN])
+            fill(tree,headers,rows+[table_totals(shown)],AMOUNT_COLUMNS)
+            fit_contract_columns()
+            for name in ('계약번호','사업자등록번호','상태','납부구분'):
+                tree.column(str(HEADERS.index(name)),anchor='center')
+            tree.tag_configure('attention',foreground='#E9B875');tree.tag_configure('total',background='#244C70',foreground='#FFFFFF')
+            for iid,r in zip(tree.get_children(),shown):
+                if r['notes'] or status(r,ref)!='유효':tree.item(iid,tags=('attention',))
+            tree.item(tree.get_children()[-1],tags=('total',))
+            pdf_buttons.reset(shown)
+        return tab,populate
+
+    _,show_current=contract_table('현황')
+    expired_tab,show_expired=contract_table('만료',expired=True)
     forecast_tab=ttk.Frame(notebook);notebook.add(forecast_tab,text='월·연 예상 수익')
     forecast_actions=ttk.Frame(forecast_tab);forecast_actions.pack(fill='x',pady=6)
     ttk.Button(forecast_actions,text='월·연 예상 금액',command=lambda:forecast_popup()).pack(side='left',padx=(8,0))
@@ -143,9 +185,9 @@ def open_rentals(parent,desktop,center,open_file):
         from financial_analysis_ui import display_table
         if not group_annual:return
         excluded=max((r[2] for r in projection),default=0)
-        rows=[[r[0],rounded_won(r[1]),rounded_won(r[2]),projection[i][2]] for i,r in enumerate(group_monthly)]
+        rows=[[r[0],*[rounded_won(v) for v in r[1:]],projection[i][2]] for i,r in enumerate(group_monthly)]
         rows.append(['연 합계',*[rounded_won(v) for v in group_annual[0][1:]],excluded])
-        dialog=amount_popup(window,['월','대학 예상 수익(원)','제네시스랩 예상 수익(원)','계산 제외 건수'],rows,display_table,f'{year.get()}년 월·연 예상 임대수익 · 원')
+        dialog=amount_popup(window,['월',*[f'{g} 예상 수익(원)' for g in group_headers[1:]],'계산 제외 건수'],rows,display_table,f'{group_annual[0][0]}년 월·연 예상 임대수익 · 원')
         dialog.title('월·연 예상 금액 · 원')
     def criteria():
         ref=date.fromisoformat(asof.get());yr=int(year.get())
@@ -156,9 +198,11 @@ def open_rentals(parent,desktop,center,open_file):
         total=sum((r[key] for r in rows if r[key] is not None),Decimal(0))
         return amount_text(rounded_won(total))+'원'+(f' (미입력 {missing}건 제외)' if missing else '')
     def draw():
-        bars(canvas,group_headers,group_monthly,'월 예상 수익',legend_below_title=True,whole_won=True,show_total=True)
+        both_groups=len(group_headers)>2
+        colors=COLORS[1:] if group_headers[1:]==['제네시스랩'] else COLORS
+        bars(canvas,group_headers,group_monthly,'월 예상 수익',legend_below_title=True,whole_won=True,show_total=both_groups,colors=colors)
         bars(annual_canvas,['연도',*group_headers[1:]],group_annual,'연 예상 수익',legend_below_title=True,
-             whole_won=True,show_total=True)
+             whole_won=True,show_total=both_groups,colors=colors)
     def schedule_draw(event=None):
         nonlocal graph_job
         if graph_job is None:graph_job=window.after_idle(draw_pending)
@@ -172,33 +216,24 @@ def open_rentals(parent,desktop,center,open_file):
     canvas.bind('<Configure>',schedule_draw)
     annual_canvas.bind('<Configure>',schedule_draw)
     def render():
-        nonlocal shown,projection,group_headers,group_monthly,group_annual
+        nonlocal projection,group_headers,group_monthly,group_annual
         try:ref,yr=criteria()
         except ValueError:
             message.set('기준일은 YYYY-MM-DD, 예상 연도는 1900~9998로 입력하세요.');return
         search=query.get().strip().casefold()
         shown=[r for r in records if (group.get()=='전체' or r['group']==group.get()) and (state.get()=='전체' or status(r,ref)==state.get()) and (not search or search in (r['tenant']+' '+r['location']+' '+str(r['number'])).casefold())]
-        active=[r for r in shown if status(r,ref)=='유효']
-        values[0].set(sum_label(shown,'deposit'));values[1].set(sum_label(active,'deposit'));values[2].set(sum_label(active,'monthly'))
-        group_headers,group_monthly,group_annual=grouped_forecasts(shown,yr)
+        current=[r for r in shown if not r.get('exited')]
+        expired_rows=[r for r in shown if r.get('exited')]
+        active=[r for r in current if status(r,ref)=='유효']
+        values[0].set(sum_label(current,'deposit'));values[1].set(sum_label(active,'deposit'));values[2].set(sum_label(active,'monthly'))
+        group_headers,group_monthly,group_annual=grouped_forecasts(shown,yr,group.get())
         projection=forecasts(shown,yr);excluded=max((r[2] for r in projection),default=0)
         values[3].set(amount_text(rounded_won(sum((r[1] for r in projection),Decimal(0))))+'원'+(f' ({excluded}건 제외)' if excluded else ''))
-        rows=table_rows(shown,ref)
-        for row in rows:
-            row[PERIOD_COLUMN]=display_period(row[PERIOD_COLUMN])
-        totals=['확인금액 합계','','','','','','',*[rounded_won(sum((r[k] for r in shown if r[k] is not None),Decimal(0))) for k in ('deposit','monthly','annual')],'','','']
-        fill(tree,HEADERS,rows+[totals],(7,8,9))
-        fit_contract_columns()
-        for name in ('사업자등록번호','상태','납부구분'):
-            tree.column(str(HEADERS.index(name)),anchor='center')
-        tree.tag_configure('attention',foreground='#E9B875');tree.tag_configure('total',background='#244C70',foreground='#FFFFFF')
-        for iid,r in zip(tree.get_children(),shown):
-            if r['notes'] or status(r,ref)!='유효':tree.item(iid,tags=('attention',))
-        tree.item(tree.get_children()[-1],tags=('total',))
-        pdf_buttons.reset(shown)
+        show_current(current,ref)
+        show_expired(expired_rows,ref)
         schedule_draw()
         count=len({(r['group'],r['number']) if r['number'] is not None else (r['source'],r['row']) for r in shown})
-        message.set(f'{count}개 계약 / {len(shown)}개 임대내역 · 유효 {len(active)}개 내역 · 확인사항 {sum(bool(r["notes"]) for r in shown)}건'+(' · '+' / '.join(issues) if issues else ''))
+        message.set(f'{count}개 계약 / {len(shown)}개 임대내역 · 퇴거 {len(expired_rows)}개 내역 · 유효 {len(active)}개 내역 · 확인사항 {sum(bool(r["notes"]) for r in shown)}건'+(' · '+' / '.join(issues) if issues else ''))
     def refresh():
         def done(result):
             nonlocal records,issues
@@ -207,7 +242,7 @@ def open_rentals(parent,desktop,center,open_file):
     def view_contract(record):
         paths=contract_pdfs(settings,record)
         if not paths:
-            messagebox.showinfo('계약서 보기','해당 계약번호의 PDF가 없습니다.\n대학: settings/contract/campus\n제네시스랩: settings/contract/genesislab\n예: 1. 임대계약서.pdf 형식으로 저장하세요.',parent=window);return
+            messagebox.showinfo('계약서 보기','해당 계약번호의 PDF가 없습니다.\n계약서는 settings/contract, 퇴거 처리한 계약서는 settings/contract-expried의 campus 또는 genesislab 폴더를 확인하세요.\n예: 1. 임대계약서.pdf',parent=window);return
         if len(paths)==1:
             try:open_file(paths[0])
             except Exception as exc:messagebox.showerror('계약서 열기',str(exc),parent=window)
@@ -220,13 +255,6 @@ def open_rentals(parent,desktop,center,open_file):
             try:open_file(paths[box.curselection()[0]]);dialog.destroy()
             except Exception as exc:messagebox.showerror('계약서 열기',str(exc),parent=dialog)
         ttk.Button(dialog,text='선택 PDF 열기',command=choose).pack(pady=8);box.bind('<Double-1>',lambda e:choose())
-    def edit_record(event):
-        if jobs.busy or tree.identify_region(event.x,event.y)!='cell':return
-        iid=tree.identify_row(event.y)
-        if not iid or tree.identify_column(event.x)=='#12':return
-        index=tree.index(iid)
-        if index>=len(shown):return
-        open_form(shown[index])
     def open_form(record=None):
         if jobs.busy:return
         creating=record is None
@@ -250,7 +278,9 @@ def open_rentals(parent,desktop,center,open_file):
             if hasattr(value,'strftime'):value=value.strftime('%Y-%m-%d')
             initial[key]=clean(value);variable=tk.StringVar(value=initial[key]);inputs[key]=variable
             ttk.Label(frame,text=label).grid(row=rn,column=0,sticky='w',padx=(0,12),pady=3)
-            ttk.Entry(frame,textvariable=variable).grid(row=rn,column=1,sticky='ew',pady=3)
+            entry=ttk.Entry(frame,textvariable=variable)
+            entry._q.setAccessibleName(label)
+            entry.grid(row=rn,column=1,sticky='ew',pady=3)
         frame.columnconfigure(1,weight=1)
         ttk.Label(frame,text='업체명·임대기간은 필수입니다. 월 환산액·상태는 자동 계산합니다. 날짜: YYYY-MM-DD\n원자료 임대료는 납부 단위 금액입니다. 연 수익 수식이 있으면 함께 갱신합니다.\n저장하면 원자료에 반영하며, 이전 파일은 contract/backups에 보관합니다.',wraplength=600).grid(row=16,column=0,columnspan=2,sticky='w',pady=10)
         edit_message=tk.StringVar();edit_jobs=Jobs(dialog,edit_message)
@@ -258,15 +288,24 @@ def open_rentals(parent,desktop,center,open_file):
         def save():
             changes={key:var.get() for key,var in inputs.items() if creating or var.get()!=initial[key]}
             if not changes:dialog.destroy();return
+            exiting=bool(clean(changes.get('exited')))
+            if exiting:
+                exit_date=parse_date(changes['exited'])
+                if exit_date is None:
+                    edit_message.set('퇴거일을 YYYY-MM-DD 형식으로 입력하세요.');return
+                tenant=inputs['tenant'].get()
+                if not messagebox.askyesno('퇴거 처리',f'{tenant} · {exit_date:%Y-%m-%d}\n퇴거 처리하시겠습니까?',parent=dialog):return
             destination_group=new_group.get();requested_number=number.get()
             def done(result):
                 dialog.destroy()
                 if creating:
                     group.set(destination_group);state.set('전체');query.set('')
                     messagebox.showinfo('신규 입력 완료',f'{destination_group} {result["number"]}번 계약을 저장했습니다.\n{result["path"]}',parent=window)
+                if exiting:
+                    state.set('전체');query.set('')
+                    notebook.select(expired_tab)
                 refresh()
             edit_jobs.run(lambda:create_rental(folder,destination_group,changes,requested_number) if creating else update_rental(record,changes),done)
         button=ttk.Button(frame,text='신규 계약 저장' if creating else '원자료에 저장',command=save);button.grid(row=18,column=1,sticky='e',pady=10);edit_jobs.controls.append(button)
         dialog.protocol('WM_DELETE_WINDOW',lambda:None if edit_jobs.busy else dialog.destroy())
-    tree.bind('<Double-1>',edit_record)
     window.after(100,refresh)

@@ -36,4 +36,23 @@ class LedgerDatabaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):import_ledger(source,'2025',db)
             self.assertEqual(len(load_records(db,'2025')),2)
 
+    def test_replace_rolls_back_and_only_updates_selected_year(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder=Path(folder);source=folder/'ledger.xlsx';db=folder/'registered.sqlite3'
+            def write(years):
+                book=Workbook();book.active.append(LEDGER_COLUMNS)
+                for i,year in enumerate(years,1):
+                    row={'년도':year,'차변':i}
+                    book.active.append([row.get(key) for key in LEDGER_COLUMNS])
+                book.save(source);book.close()
+            for year in ('2024','2025'):
+                write([year]);import_ledger(source,year,db)
+            for invalid in ([],['2024','2025']):
+                write(invalid)
+                with self.assertRaises(ValueError):import_ledger(source,'2024',db,allow_replace=True)
+                self.assertEqual(len(load_records(db,'2024')),1)
+            write(['2024','2024']);import_ledger(source,'2024',db,allow_replace=True)
+            self.assertEqual(len(load_records(db,'2024')),2)
+            self.assertEqual(len(load_records(db,'2025')),1)
+
 if __name__=='__main__':unittest.main()

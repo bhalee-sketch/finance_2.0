@@ -84,9 +84,11 @@ class PeriodDate(tk.W.QWidget):
 def open_ledger(parent,desktop,center,open_file):
     from finance_ui import shell,target_file,saved
     from audit_review import AccountOrder,matches
-    from analysis_runtime import load_program_ledger,load_program_statement_history
+    from analysis_runtime import load_program_ledger,load_program_statement_history,program_ledger_paths
+    from ledger_database import import_ledger,registered_database
     window,body,status,jobs=shell(parent,'계정별원장 조회',center)
     records=[];paths={};order=AccountOrder();source=None;notes=[]
+    settings=desktop()/'settings'
     top=ttk.Frame(body);top.pack(fill='x',pady=(0,8))
     ttk.Label(top,text='원장 연도').pack(side='left',padx=(0,6))
     year=tk.StringVar();year_box=ttk.Combobox(top,textvariable=year,state='readonly',width=8);year_box.pack(side='left',padx=(0,10));jobs.controls.append(year_box)
@@ -157,7 +159,7 @@ def open_ledger(parent,desktop,center,open_file):
     for name,box in boxes.items():box.bind('<<ComboboxSelected>>',lambda e,k=name:apply(k))
     search.returnPressed.connect(apply)
     start.lineEdit().returnPressed.connect(apply);end.lineEdit().returnPressed.connect(apply)
-    def load_year(event=None):
+    def load_year(event=None, *, registered=False):
         nonlocal records,source
         if jobs.busy:return
         source=None;records=[];empty()
@@ -174,23 +176,34 @@ def open_ledger(parent,desktop,center,open_file):
         def done(payload):
             nonlocal records,order,notes,source
             records,order,notes,options=payload;source=path;show_choices(options);empty()
-            status.set('원장 준비 완료 · 조건을 선택하거나 조회를 누르세요.')
+            ready=f'{requested}회계연도 원장 {len(records):,}건 등록 완료' if registered else '원장 준비 완료'
+            status.set(ready+' · 조건을 선택하거나 조회를 누르세요.')
         jobs.run(work,done)
     year_box.bind('<<ComboboxSelected>>',load_year)
-    def refresh():
+    def refresh(selected=None):
         nonlocal paths
         if jobs.busy:return
-        from ledger_database import discover_years
-        paths=discover_years();year_box.configure(values=list(paths))
+        try:paths=program_ledger_paths(settings)
+        except (OSError,ValueError) as error:
+            messagebox.showerror('원장 목록',str(error),parent=window);return
+        year_box.configure(values=list(paths))
         if not paths:empty();label.set('저장된 원장 없음');return
-        if year.get() not in paths:year.set(next(iter(paths)))
-        load_year()
-    def choose():
+        if selected in paths:year.set(selected)
+        elif year.get() not in paths:year.set(next(iter(paths)))
+        load_year(registered=selected is not None)
+    def register():
         if jobs.busy:return
-        filename=filedialog.askopenfilename(parent=window,filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
+        filename=filedialog.askopenfilename(parent=window,title='등록할 계정별원장 선택',filetypes=[('Excel','*.xls *.xlsx *.xlsm')])
         if not filename:return
-        path=Path(filename);match=re.search(r'20\d{2}',path.stem);key=match.group() if match else path.stem
-        paths[key]=path;year_box.configure(values=list(paths));year.set(key);load_year()
+        path=Path(filename)
+        match=re.search(r'(?<!\d)20\d{2}(?!\d)',path.stem)
+        selected=tk.simpledialog.askinteger('원장등록',f'{path.name}\n등록할 회계연도를 선택하세요.',
+            parent=window,initialvalue=int(match[0]) if match else tk.C.QDate.currentDate().year(),minvalue=2000,maxvalue=2099)
+        if selected is None:return
+        key=str(selected)
+        replace=key in paths
+        if replace and not messagebox.askyesno('원장등록',f'{key}회계연도에 새로 선택한 원장을 사용하시겠습니까?',parent=window):return
+        jobs.run(lambda:import_ledger(path,key,registered_database(settings),allow_replace=replace),lambda _:refresh(key))
     def reset():
         if jobs.busy:return
         for var in filters.values():var.set('전체')
@@ -208,7 +221,7 @@ def open_ledger(parent,desktop,center,open_file):
         text=tk.Text(dialog,wrap='word');text.pack(fill='both',expand=True)
         text.insert('1.0','\n\n'.join(f'{key}: {amount_text(value) if isinstance(value,Decimal) else value}' for key,value in row.items()));text.configure(state='disabled')
     view.doubleClicked.connect(detail)
-    for title,callback in [('Excel 저장',export),('조건 초기화',reset),('조회',apply),('원장 파일 선택',choose),('연도 새로고침',refresh)]:
+    for title,callback in [('Excel 저장',export),('조건 초기화',reset),('조회',apply),('원장등록',register)]:
         button=ttk.Button(top,text=title,command=callback);button.pack(side='right',padx=4);jobs.controls.append(button)
     window.after(100,refresh)
     return window

@@ -61,15 +61,20 @@ class WorkflowTests(unittest.TestCase):
             with patch.object(q.filedialog,'askopenfilename',return_value=path):button.click()
         self.click(w,'검증 · 결과 저장');self.wait(lambda:bool(self.opened))
         self.assertIn('일치 1건',w._work_status.get())
-    def test_ledger_file_selection(self):
-        p=self.folder/'2025원장.xlsx';b=Workbook();s=b.active;s.append(LEDGER_COLUMNS)
-        record=dict.fromkeys(LEDGER_COLUMNS,'');record.update(년도='2025',회계일자='20250301',차변=1234,대변=0,적요='거래 검증')
+    def test_ledger_registration_survives_reopen_without_original(self):
+        p=self.folder/'2024원장.xlsx';b=Workbook();s=b.active;s.append(LEDGER_COLUMNS)
+        record=dict.fromkeys(LEDGER_COLUMNS,'');record.update(년도='2024',회계일자='20240301',차변=1234,대변=0,적요='거래 검증')
         s.append([record[k] for k in LEDGER_COLUMNS]);b.save(p);b.close()
-        with patch('ledger_database.discover_years',return_value={}):
-            open_ledger(self.root,lambda:self.folder,lambda *a:None,lambda *a:None)
-            w=self.window();self.wait(lambda:'저장된 원장 없음' in [x.text() for x in w._q.findChildren(q.W.QLabel)])
-        with patch.object(q.filedialog,'askopenfilename',return_value=str(p)):
-            self.click(w,'원장 파일 선택')
+        from ledger_database import discover_years
+        self.stack.enter_context(patch('ledger_database.discover_years',side_effect=lambda db=None:discover_years(db) if db else {}))
+        open_ledger(self.root,lambda:self.folder,lambda *a:None,lambda *a:None)
+        w=self.window();self.wait(lambda:'저장된 원장 없음' in [x.text() for x in w._q.findChildren(q.W.QLabel)])
+        with patch.object(q.filedialog,'askopenfilename',return_value=str(p)),patch.object(q.simpledialog,'askinteger',return_value=2024):
+            self.click(w,'원장등록')
+        self.wait(lambda:'1건 등록 완료' in w._work_status.get())
+        w.destroy();p.unlink()
+        open_ledger(self.root,lambda:self.folder,lambda *a:None,lambda *a:None)
+        w=self.window()
         self.wait(lambda:w._work_status.get().startswith('원장 준비 완료'))
         self.assertEqual(w._ledger_model.rowCount(),0)
         self.click(w,'조회')

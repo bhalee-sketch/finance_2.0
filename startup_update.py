@@ -121,9 +121,11 @@ def check_for_setup(root, folder, current, status):
         notice.set(str(error))
         status.set(f'현재 {current} · 업데이트 미완료')
         update.configure(text='다시 시도', state='normal', command=retry)
+        update._q.show()
         if full_setup is not None:
             full._q.show()
         later.configure(text='닫기')
+        later._q.show()
 
     def request(url, consume, complete, retry):
         nonlocal active
@@ -198,7 +200,8 @@ def check_for_setup(root, folder, current, status):
         filename = url.rsplit('/', 1)[-1]
         full._q.hide()
         update.configure(state='disabled')
-        later.configure(text='취소')
+        update._q.hide()
+        later._q.hide()
         notice.set(f'{filename} 다운로드 중…')
         status.set(f'새 버전 {version} · 설치 파일 다운로드 중')
         progress._q.show()

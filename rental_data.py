@@ -2,6 +2,7 @@
 import calendar
 import re
 import hashlib
+from contextlib import contextmanager
 from io import BytesIO
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -67,7 +68,7 @@ def read_rentals(path):
                     records.append(dict(group=group,number=number,tenant=clean(row[5]),representative=clean(row[6]),business=clean(row[7]),special=clean(row[16]),
                         building=clean(row[1]),floor=clean(row[2]),room=clean(row[3]),location=location_text(*row[1:4]),
                         raw_values={key:row[column-1] for key,column in EDIT_COLUMNS.items()},revision=revision,
-                        start=start,end=end,period=clean(row[8]),deposit=deposit,rent=rent,annual=annual,monthly=annual/12 if annual is not None else None,
+                        start=start,end=end,exited=exited,period=clean(row[8]),deposit=deposit,rent=rent,annual=annual,monthly=annual/12 if annual is not None else None,
                         term=term,basis=basis,notes=' · '.join(notes),source=str(path),sheet=sheet.title,row=rn))
                 except (ValueError,TypeError,ArithmeticError) as exc:
                     issues.append(f'{path.name} {sheet.title} {rn}행: {exc}')
@@ -90,6 +91,7 @@ def load_rentals(folder):
 
 
 def status(record,asof):
+    if record.get('exited') and asof>=record['exited']:return '만료/퇴거'
     if not record['start'] or not record['end']:return '기간 확인'
     if asof<record['start']:return '예정'
     if asof>record['end']:return '만료/퇴거'
@@ -113,17 +115,54 @@ def forecasts(records,year):
     return rows
 
 
-def contract_pdfs(settings,record):
-    subfolder={'대학':'campus','제네시스랩':'genesislab'}.get(record['group'])
+PDF_GROUPS={'대학':'campus','제네시스랩':'genesislab'}
+EXPIRED_FOLDER='contract-expried'
+
+
+def contract_pdfs(settings,record,*,include_archive=True):
+    subfolder=PDF_GROUPS.get(record['group'])
     if subfolder is None or record['number'] is None:return []
     settings=Path(settings)
     folders=(settings/'contract'/subfolder,settings/('contract-'+subfolder),settings/'contract'/('contract-'+subfolder))
+    if include_archive:folders+=(settings/EXPIRED_FOLDER/subfolder,)
     pattern=re.compile(r'^\s*0*'+str(record['number'])+r'\s*\.\s*.+',re.I)
     return sorted({p.resolve() for folder in folders if folder.exists() for p in folder.iterdir()
                    if p.is_file() and p.suffix.lower()=='.pdf' and pattern.match(p.stem)})
 
 
-HEADERS=['구분','임대사항(위치)','업체명','대표자명','사업자등록번호','임대기간','상태','임대보증금','월 환산 임대료','연 임대수익','납부구분','계약서 보기','특이사항']
+@contextmanager
+def archive_exit_pdfs(settings,record,exit_date):
+    """Move matching PDFs together with the workbook save, rolling back on failure."""
+    sources=contract_pdfs(settings,record,include_archive=False) if exit_date else []
+    moved=[]
+    try:
+        for source in sources:
+            folder=settings/EXPIRED_FOLDER/PDF_GROUPS[record['group']]
+            folder.mkdir(parents=True,exist_ok=True)
+            target=folder/source.name
+            suffix=1
+            while True:
+                try:
+                    target.open('xb').close()
+                    break
+                except FileExistsError:
+                    suffix+=1
+                    target=folder/f'{source.stem} ({suffix}){source.suffix}'
+            try:source.replace(target)
+            except OSError:
+                target.unlink()
+                raise
+            moved.append((source,target))
+        yield
+    except Exception:
+        for source,target in reversed(moved):target.rename(source)
+        raise
+
+
+HEADERS=['계약번호','구분','임대사항(위치)','업체명','대표자명','사업자등록번호','임대기간','상태','임대보증금','월 환산 임대료','연 임대수익','납부구분','계약서 보기','특이사항']
+AMOUNT_COLUMNS = {HEADERS.index(title): key for title, key in (
+    ('임대보증금', 'deposit'), ('월 환산 임대료', 'monthly'), ('연 임대수익', 'annual'),
+)}
 
 
 def rounded_won(value):
@@ -131,13 +170,21 @@ def rounded_won(value):
 
 
 def table_rows(records,asof):
-    return [[r['group'],r['location'],r['tenant'],r['representative'],r['business'],r['period'],status(r,asof),r['deposit'],rounded_won(r['monthly']),r['annual'],r['term'],'',r.get('special','')] for r in records]
+    return [[r['number'],r['group'],r['location'],r['tenant'],r['representative'],r['business'],r['period'],status(r,asof),r['deposit'],rounded_won(r['monthly']),r['annual'],r['term'],'',r.get('special','')] for r in records]
+
+
+def table_totals(records):
+    totals = [''] * len(HEADERS)
+    totals[HEADERS.index('임대사항(위치)')] = '확인금액 합계'
+    for column, key in AMOUNT_COLUMNS.items():
+        totals[column] = rounded_won(sum((r[key] for r in records if r[key] is not None), Decimal(0)))
+    return totals
 
 
 def export_rentals(target,records,asof,year,issues):
     book=Workbook();sheet=book.active;sheet.title='임대사항';append_row(sheet,HEADERS)
     for row in table_rows(records,asof):append_row(sheet,row)
-    append_row(sheet,['확인금액 합계','','','','','','',*[rounded_won(sum((r[key] for r in records if r[key] is not None),Decimal(0))) for key in ('deposit','monthly','annual')]])
+    append_row(sheet,table_totals(records))
     monthly=book.create_sheet('월별 예상 수익');append_row(monthly,['월','예상 수익(원)','계산 제외 건수'])
     projection=forecasts(records,year)
     for row in projection:append_row(monthly,row)
@@ -162,8 +209,8 @@ def location_text(building,floor,room):
     return ' '.join(part for part in (clean(building),suffix(floor,'층'),suffix(room,'호')) if part)
 
 
-def grouped_forecasts(records,year):
-    groups=['대학','제네시스랩']
+def grouped_forecasts(records,year,group='전체'):
+    groups=['대학','제네시스랩'] if group=='전체' else [group]
     data={g:forecasts([r for r in records if r['group']==g],year) for g in groups}
     monthly=[[f'{m+1}월',*[data[g][m][1] for g in groups]] for m in range(12)]
     annual=[[str(year),*[sum((row[1] for row in data[g]),Decimal(0)) for g in groups]]]
@@ -211,7 +258,8 @@ def update_rental(record,changes):
         backup_dir=path.parent/'backups';backup_dir.mkdir(exist_ok=True)
         backup=backup_dir/f'{path.stem}_{datetime.now():%Y%m%d_%H%M%S_%f}_{uuid4().hex[:6]}{path.suffix}'
         with backup.open('xb') as out:out.write(original)
-        os.replace(temporary,path);temporary=None
+        with archive_exit_pdfs(path.parent.parent,record,converted.get('exited')):
+            os.replace(temporary,path);temporary=None
         return backup
     finally:
         book.close()
@@ -326,17 +374,21 @@ def create_rental(folder,group,values,number=None):
         from rental_formulas import restore_formula_caches
         restore_formula_caches(temporary,cache_source,book,sheet.title,True)
         backup=None
-        if original is None:
-            with path.open('xb') as output,open(temporary,'rb') as source:
-                import shutil
-                try:shutil.copyfileobj(source,output)
-                except OSError:path.unlink(missing_ok=True);raise
-        else:
+        if original is not None:
             if path.read_bytes()!=original:raise ValueError('원자료가 변경되었습니다. 다시 저장하세요.')
             backup_dir=folder/'backups';backup_dir.mkdir(exist_ok=True)
             backup=backup_dir/f'{path.stem}_{datetime.now():%Y%m%d_%H%M%S_%f}_{uuid4().hex[:6]}{path.suffix}'
             with backup.open('xb') as output:output.write(original)
-            os.replace(temporary,path);temporary=None
+        with archive_exit_pdfs(folder.parent,{'group':group,'number':new_number},converted.get('exited')):
+            if original is None:
+                import shutil
+                with path.open('xb') as output:
+                    try:
+                        with open(temporary,'rb') as source:shutil.copyfileobj(source,output)
+                    except OSError:
+                        output.close();path.unlink(missing_ok=True);raise
+            else:
+                os.replace(temporary,path);temporary=None
         return {'path':path,'number':new_number,'backup':backup}
     finally:
         book.close()
