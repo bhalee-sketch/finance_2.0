@@ -43,28 +43,56 @@ def check_on_start(root):
 
 def check_for_setup(root, folder, current, status):
     from PySide6 import QtNetwork as N
-    from app import center_window
     from ui_theme import dark_titlebar
 
-    dialog = tk.Toplevel(root)
+    dialog = tk.Toplevel(root, show_on_create=False)
     dialog.title('업데이트 확인')
     dialog.transient(root)
-    center_window(dialog, 480, 175)
+    dialog._q.setWindowFlags(tk.C.Qt.WindowType.Dialog | tk.C.Qt.WindowType.WindowCloseButtonHint)
     dark_titlebar(dialog)
-    body = tk.ttk.Frame(dialog, padding=16)
-    body.pack(fill='both', expand=True)
+
+    layout = tk.W.QVBoxLayout(dialog._container())
+    layout.setContentsMargins(24, 18, 24, 18)
+    layout.setSpacing(12)
+    layout.addStretch()
     notice = tk.StringVar(value='최신 버전을 확인하고 있습니다…')
     status.set(f'현재 {current} · 최신 버전 확인 중…')
-    tk.ttk.Label(body, textvariable=notice).pack(fill='x')
-    progress = tk.ttk.Progressbar(body)
-    buttons = tk.ttk.Frame(body)
-    buttons.pack(fill='x')
-    update = tk.ttk.Button(buttons, text='업데이트 하기', state='disabled')
-    update.pack(side='right')
-    full = tk.ttk.Button(buttons, text='전체 설치본 받기')
-    later = tk.ttk.Button(buttons, text='닫기', command=dialog.destroy)
-    later.pack(side='right', padx=(0, 8))
+    message = tk.ttk.Label(dialog, textvariable=notice, wraplength=380)
+    message._q.setAlignment(tk.C.Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(message._q)
+    progress = tk.ttk.Progressbar(dialog)
+    layout.addWidget(progress._q)
+    actions = tk.W.QHBoxLayout()
+    actions.setSpacing(8)
+    actions.addStretch()
+    full = tk.ttk.Button(dialog, text='전체 설치본 받기')
+    later = tk.ttk.Button(dialog, text='닫기', command=dialog.destroy)
+    update = tk.ttk.Button(dialog, text='업데이트 하기', style='Primary.TButton', state='disabled')
+    for button in (full, later, update):
+        actions.addWidget(button._q)
+    actions.addStretch()
+    layout.addLayout(actions)
+    layout.addStretch()
+
+    # Measure the widest state before hiding the optional action.
+    for control in (message, progress, full, later, update):
+        control._q.show()
+    dialog.update_idletasks()
+    required = layout.sizeHint()
+    center = root._q.mapToGlobal(root._q.rect().center())
+    screen = (tk.application().screenAt(center) or root._q.screen()).availableGeometry()
+    launcher = getattr(root, '_launcher', None)
+    if launcher and (launcher.compact or launcher.floating):
+        center = screen.center()
+    dialog._q.resize(min(screen.width(), required.width()),
+                     min(screen.height(), max(136, required.height() + message._q.fontMetrics().height())))
+    full._q.hide()
     dialog.grab_set()
+    frame = dialog._q.frameGeometry()
+    frame.moveCenter(center)
+    x = max(screen.left(), min(frame.left(), screen.right() - frame.width() + 1))
+    y = max(screen.top(), min(frame.top(), screen.bottom() - frame.height() + 1))
+    dialog._q.move(x, y)
 
     network = N.QNetworkAccessManager(dialog._q)
     active = None
@@ -89,12 +117,12 @@ def check_for_setup(root, folder, current, status):
 
     def failed(error, retry):
         cleanup()
-        progress.pack_forget()
+        progress._q.hide()
         notice.set(str(error))
         status.set(f'현재 {current} · 업데이트 미완료')
         update.configure(text='다시 시도', state='normal', command=retry)
         if full_setup is not None:
-            full.pack(side='left')
+            full._q.show()
         later.configure(text='닫기')
 
     def request(url, consume, complete, retry):
@@ -168,12 +196,12 @@ def check_for_setup(root, folder, current, status):
         nonlocal output
         version, url = setup
         filename = url.rsplit('/', 1)[-1]
-        full.pack_forget()
+        full._q.hide()
         update.configure(state='disabled')
         later.configure(text='취소')
         notice.set(f'{filename} 다운로드 중…')
         status.set(f'새 버전 {version} · 설치 파일 다운로드 중')
-        progress.pack(fill='x', pady=10, before=buttons)
+        progress._q.show()
         progress.start()
         target = folder / 'downloads' / filename
         retry = lambda: download(setup)
@@ -227,14 +255,14 @@ def check_for_setup(root, folder, current, status):
         nonlocal full_setup
         releases = json.loads(data)
         setup = latest_setup(current, releases)
-        progress.pack_forget()
+        progress._q.hide()
         if setup:
             method = '전체 설치'
             if '/WorkSpace-Patch-' in setup[1]:
                 method = '변경 파일 패치'
                 full_setup = latest_setup(current, releases, prefer_patch=False)
                 full.configure(command=lambda: download(full_setup))
-                full.pack(side='left')
+                full._q.show()
             notice.set(f'현재 {current} · 새 버전 {setup[0]} · {method}')
             status.set(f'새 버전 {setup[0]} · 업데이트 가능')
             update.configure(text='업데이트 하기', state='normal', command=lambda: download(setup))
@@ -247,7 +275,7 @@ def check_for_setup(root, folder, current, status):
     def check():
         update.configure(state='disabled')
         notice.set('최신 버전을 확인하고 있습니다…')
-        progress.pack(fill='x', pady=10, before=buttons)
+        progress._q.show()
         progress.start()
         read_small(SETUP_API + '/releases?per_page=30', 2 * 1024 * 1024, checked, check)
 

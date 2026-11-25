@@ -134,3 +134,107 @@ def test_saved_statement_distinguishes_same_mok_in_different_paths(tmp_path):
     assert rows[-4:] == [('행사비 (관리운영비 / 운영비)', [10, None]),
                          ('행사비 (관리운영비 / 별도운영비)', [None, 20]),
                          ('자금지출총계', [10, 20]), ('수지차액', [-10, -20])]
+
+
+def test_saved_statement_rolls_up_by_path_for_selected_funds(tmp_path):
+    reference = history()
+    other = ('다른관', EXPENSE[1], '별도행사비')
+    items = reference['2025']['datasets']['전체', '합계']['items']
+    items['지출', other] = {'section': '지출', 'path': other}
+    source = workbook(tmp_path / '원장.xlsx', [
+        (2025, *other, '사업1', '기금A', 7, 0),
+        (2025, *EXPENSE, '사업1', '기금A', 10, 0),
+        (2025, *ASSET, '사업2', '기금B', 20, 3),
+        (2025, *EQUIPMENT, '사업2', '기금B', 5, 0),
+        (2025, *EXPENSE, '사업3', '기금C', 100, 0),
+    ])
+    store_cashflow(tmp_path, '2025', source, reference)
+    _, saved = read_cashflow(tmp_path, '2025')
+    expected_expenses = {
+        '관': [('관리운영비', [10, None]), ('고정자산', [None, 25]), ('다른관', [7, None])],
+        '항': [('운영비 (관리운영비)', [10, None]), ('유형고정자산', [None, 25]),
+              ('운영비 (다른관)', [7, None])],
+        '목': [('행사비', [10, None]), ('건설중인자산', [None, 20]),
+              ('기계기구매입비', [None, 5]), ('별도행사비', [7, None])],
+    }
+    for level, expenses in expected_expenses.items():
+        funds, rows = saved.fund_statement({'기금A', '기금B'}, level)
+        assert funds == ['기금A', '기금B']
+        assert rows[2:] == [('자금수입총계', [0, 3]), ('[지출]', None), *expenses,
+                            ('자금지출총계', [17, 25]), ('수지차액', [-17, -22])]
+
+
+@pytest.mark.parametrize('stays_locked', [False, True])
+def test_upload_retries_windows_lock_before_replacing_year(tmp_path, monkeypatch, stays_locked):
+    from pathlib import Path
+    import resource_cashflow
+
+    folder = tmp_path / 'OneDrive' / '재원별 수지분석'
+    source = sample(tmp_path / '원장.xlsx')
+    reference = history()
+    store_cashflow(folder, '2025', source, reference)
+    target = folder / '2025.zip'
+    previous = target.read_bytes()
+    workbook(source, [(2025, *EXPENSE, '사업1', '', 30, 0)])
+    original_replace = Path.replace
+    attempts = []
+
+    def locked_replace(archive, destination):
+        assert destination == target
+        assert target.read_bytes() == previous
+        attempts.append(archive)
+        if stays_locked or len(attempts) == 1:
+            error = PermissionError('sharing violation')
+            error.winerror = 32
+            raise error
+        return original_replace(archive, destination)
+
+    analyze = resource_cashflow.analyze_cashflow
+
+    def check_snapshot(snapshot, *args, **kwargs):
+        assert not snapshot.is_relative_to(folder)
+        assert snapshot.read_bytes() == source.read_bytes()
+        return analyze(snapshot, *args, **kwargs)
+
+    monkeypatch.setattr(resource_cashflow, 'analyze_cashflow', check_snapshot)
+    monkeypatch.setattr(resource_cashflow, 'sleep', lambda delay: None)
+    monkeypatch.setattr(Path, 'replace', locked_replace)
+    if stays_locked:
+        with pytest.raises(PermissionError, match='2025.zip 파일이 사용 중'):
+            store_cashflow(folder, '2025', source, reference)
+        assert target.read_bytes() == previous
+    else:
+        saved = store_cashflow(folder, '2025', source, reference)
+        assert read_cashflow(folder, '2025') == saved
+        assert saved[1].report('재원별 요약') == [('', 0, 30, -30)]
+    assert len(attempts) >= 2
+    assert list(folder.iterdir()) == [target]
+
+
+def test_scholarship_group_reloads_and_sums_only_visible_members(tmp_path):
+    from resource_cashflow import SCHOLARSHIP_GROUP, save_scholarship_funds
+
+    source = workbook(tmp_path / '원장.xlsx', [
+        (2025, *INCOME, '사업1', '재원A', 0, 100),
+        (2025, *EXPENSE, '사업2', '재원B', 30, 0),
+        (2025, *INCOME, '사업2', SCHOLARSHIP_GROUP, 0, -5),
+        (2025, *INCOME, '사업2', '일반', 0, 70),
+    ])
+    _, original = store_cashflow(tmp_path, '2025', source, history())
+    save_scholarship_funds(tmp_path, '2025', {'재원A', '재원B'})
+    _, grouped = read_cashflow(tmp_path, '2025')
+    assert grouped.report('재원별 요약') == [(SCHOLARSHIP_GROUP, 95, 30, 65), ('일반', 70, 0, 70)]
+    assert grouped.report('대사업별 요약') == original.report('대사업별 요약')
+    for level in ('관', '항', '목'):
+        funds, rows = grouped.fund_statement(level=level)
+        assert funds == [SCHOLARSHIP_GROUP, '일반']
+        assert dict(rows)['자금수입총계'] == [95, 70]
+        assert dict(rows)['자금지출총계'] == [30, 0]
+        assert dict(rows)['수지차액'] == [65, 70]
+        funds, rows = grouped.fund_statement({'재원B'}, level)
+        assert funds == [SCHOLARSHIP_GROUP] and rows[-1] == ('수지차액', [-30])
+    _, replaced = store_cashflow(tmp_path, '2025', source, history())
+    assert replaced == grouped
+    assert store_cashflow(tmp_path, '2026', source, history())[1] == original
+    save_scholarship_funds(tmp_path, '2025', set())
+    assert read_cashflow(tmp_path, '2025')[1] == original

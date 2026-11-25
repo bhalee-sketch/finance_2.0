@@ -7,11 +7,15 @@ import json
 from pathlib import Path
 from shutil import copyfile
 from tempfile import TemporaryDirectory
+from time import sleep
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from finance_data import money, rows, text
+from release_update import atomic_json, read_json
 from statement_analysis import normalize
 
+SCHOLARSHIP_GROUP = '교육부(국가장학금)'
+ACCOUNT_LEVELS = ('관', '항', '목')
 REQUIRED = ('년도', '관', '항', '목', '대사업', '재원', '차변', '대변')
 # Ledger asset names describe the asset itself. A debit acquisition maps to
 # the statement purchase line. A disposal's book value is not sale proceeds.
@@ -56,23 +60,29 @@ class Cashflow:
     excluded: int
     amounts: dict
     ranks: dict
+    scholarship_funds: frozenset = frozenset()
 
     def _postings(self, fund):
-        if fund is None:
-            return self.amounts.items()
-        selected = {fund} if isinstance(fund, str) else set(fund)
-        return ((key, amount) for key, amount in self.amounts.items() if key[0] in selected)
+        selected = None
+        if fund is not None:
+            selected = {fund} if isinstance(fund, str) else set(fund)
+        for (source, project, side, path), amount in self.amounts.items():
+            if selected is None or source in selected:
+                label = SCHOLARSHIP_GROUP if source in self.scholarship_funds else source
+                yield (label, project, side, path), amount
 
-    def fund_statement(self, fund=None):
-        """Group fund amounts by full account path and show 목 in statement order."""
+    def fund_statement(self, fund=None, level='목'):
+        """Roll up each fund to the selected account level in cash statement order."""
+        depth = ACCOUNT_LEVELS.index(level) + 1
         accounts = defaultdict(lambda: defaultdict(Decimal))
         funds = set()
         for (source, _, side, path), amount in self._postings(fund):
-            accounts[side, *path][source] += amount
+            accounts[side, *path[:depth]][source] += amount
             funds.add(source)
         funds = sorted(funds, key=lambda name: (not name, name))
-        order = sorted(accounts, key=self.ranks.__getitem__)
-        names = Counter((side, mok) for side, _, _, mok in order)
+        ranked_groups = dict.fromkeys(key[:depth + 1] for key in self.ranks)
+        order = [key for key in ranked_groups if key in accounts]
+        names = Counter((key[0], key[-1]) for key in order)
         rows = []
         totals = {}
         for side in ('수입', '지출'):
@@ -85,8 +95,9 @@ class Cashflow:
                 for i, value in enumerate(values):
                     if value is not None:
                         subtotal[i] += value
-                _, kwan, hang, mok = key
-                label = f'{mok} ({kwan} / {hang})' if names[side, mok] > 1 else mok
+                label = key[-1]
+                if names[side, label] > 1:
+                    label = f"{label} ({' / '.join(key[1:-1])})"
                 rows.append((label, values))
             rows.append((f'자금{side}총계', subtotal))
             totals[side] = subtotal
@@ -169,24 +180,56 @@ def saved_cashflow_years(folder):
     return sorted((p.stem for p in folder.glob('[0-9][0-9][0-9][0-9].zip') if p.is_file()), reverse=True)
 
 
+def read_scholarship_funds(folder, year):
+    try:
+        members = read_json(folder / f'{year}-scholarship.json')
+    except FileNotFoundError:
+        return frozenset()
+    if not isinstance(members, list) or not all(isinstance(name, str) for name in members):
+        raise ValueError(f'{year}회계연도 재원 묶음 설정을 확인하세요.')
+    return frozenset(members)
+
+
+def save_scholarship_funds(folder, year, members):
+    atomic_json(folder / f'{year}-scholarship.json', sorted(members))
+
+
+def _retry_file_lock(operation, *args, filename):
+    for delay in (0.2, 0.5, 1.0, 2.0, None):
+        try:
+            return operation(*args)
+        except OSError as error:
+            if getattr(error, 'winerror', None) not in (32, 33):
+                raise
+            if delay is None:
+                raise PermissionError(
+                    f'{filename} 파일이 사용 중입니다. 파일을 닫거나 동기화가 끝난 뒤 다시 시도하세요.'
+                ) from error
+            sleep(delay)
+
+
 def store_cashflow(folder, year, source, history):
     if len(year) != 4 or not year.isascii() or not year.isdigit():
         raise ValueError('회계연도를 선택하세요.')
     source = Path(source)
     folder.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(dir=folder) as staging:
-        workbook = Path(staging) / ('workbook' + source.suffix.lower())
-        copyfile(source, workbook)
-        report = analyze_cashflow(workbook, history, fiscal_year=year)
-        summary = dict(filename=source.name, year=report.year, basis=report.basis,
-                       included=report.included, excluded=report.excluded, ranks=list(report.ranks),
-                       amounts=[[fund, project, side, path, str(amount)]
-                                for (fund, project, side, path), amount in report.amounts.items()])
+    # Only the archive needs to be on the destination volume for atomic replacement.
+    with TemporaryDirectory(dir=folder, ignore_cleanup_errors=True) as staging:
         archive = Path(staging) / 'report.zip'
-        with ZipFile(archive, 'w') as output:
-            output.write(workbook, workbook.name)
-            output.writestr('summary.json', json.dumps(summary, ensure_ascii=False), compress_type=ZIP_DEFLATED)
-        archive.replace(folder / f'{year}.zip')
+        with TemporaryDirectory(prefix='workspace-ledger-', ignore_cleanup_errors=True) as local:
+            workbook = Path(local) / ('workbook' + source.suffix.lower())
+            _retry_file_lock(copyfile, source, workbook, filename=source.name)
+            report = analyze_cashflow(workbook, history, fiscal_year=year)
+            summary = dict(filename=source.name, year=report.year, basis=report.basis,
+                           included=report.included, excluded=report.excluded, ranks=list(report.ranks),
+                           amounts=[[fund, project, side, path, str(amount)]
+                                    for (fund, project, side, path), amount in report.amounts.items()])
+            with ZipFile(archive, 'w') as output:
+                output.write(workbook, workbook.name)
+                output.writestr('summary.json', json.dumps(summary, ensure_ascii=False), compress_type=ZIP_DEFLATED)
+        report.scholarship_funds = read_scholarship_funds(folder, year)
+        target = folder / f'{year}.zip'
+        _retry_file_lock(archive.replace, target, filename=target.name)
     return source.name, report
 
 
@@ -196,4 +239,5 @@ def read_cashflow(folder, year):
     amounts = {(fund, project, side, tuple(path)): Decimal(amount)
                for fund, project, side, path, amount in data['amounts']}
     ranks = {tuple(key): i for i, key in enumerate(data['ranks'])}
-    return data['filename'], Cashflow(data['year'], data['basis'], data['included'], data['excluded'], amounts, ranks)
+    return data['filename'], Cashflow(data['year'], data['basis'], data['included'], data['excluded'], amounts, ranks,
+                                     read_scholarship_funds(folder, year))

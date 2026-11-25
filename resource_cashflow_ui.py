@@ -5,7 +5,8 @@ from zipfile import BadZipFile
 import qt_ui as tk
 from qt_ui import filedialog, ttk
 from finance_ui import compact_combo
-from resource_cashflow import read_cashflow, saved_cashflow_years, store_cashflow
+from resource_cashflow import (ACCOUNT_LEVELS, SCHOLARSHIP_GROUP, read_cashflow, saved_cashflow_years,
+                               save_scholarship_funds, store_cashflow)
 from responsive_ui import wrapping_row
 from statement_catalog import amount_text
 from statement_ui import table
@@ -65,30 +66,31 @@ class StatementAmountDelegate(CashflowAmountDelegate):
 
 
 class FundSelectionDialog(tk.W.QDialog):
-    def __init__(self, window, funds, selected):
+    def __init__(self, window, funds, selected, members):
         super().__init__(window._q)
         from appearance import controller
         from ui_theme import dark_titlebar
 
         self.setWindowTitle('재원 선택')
         layout = tk.W.QVBoxLayout(self)
+        tabs = tk.W.QTabWidget()
+        layout.addWidget(tabs)
+        filter_page = tk.W.QWidget()
+        filter_layout = tk.W.QVBoxLayout(filter_page)
+        tabs.addTab(filter_page, '조회할 재원')
         self.all_funds = tk.W.QCheckBox('전체 재원')
-        layout.addWidget(self.all_funds)
-
-        scroll = tk.W.QScrollArea()
-        scroll.setWidgetResizable(True)
-        contents = tk.W.QWidget()
-        rows = tk.W.QVBoxLayout(contents)
-        self.choices = {}
-        for name in funds:
-            check = tk.W.QCheckBox((name or '미지정').replace('&', '&&'))
-            check.setChecked(selected is not None and name in selected)
+        filter_layout.addWidget(self.all_funds)
+        self.choices = self.fund_list(filter_layout, funds, selected or ())
+        for check in self.choices.values():
             check.clicked.connect(self.sync_all)
-            rows.addWidget(check)
-            self.choices[name] = check
-        rows.addStretch()
-        scroll.setWidget(contents)
-        layout.addWidget(scroll)
+
+        group_page = tk.W.QWidget()
+        group_layout = tk.W.QVBoxLayout(group_page)
+        tabs.addTab(group_page, '묶음 설정')
+        description = tk.W.QLabel(f'{SCHOLARSHIP_GROUP}으로 합산할 재원을 선택하세요.')
+        description.setWordWrap(True)
+        group_layout.addWidget(description)
+        self.members = self.fund_list(group_layout, funds, members)
         self.sync_all()
         self.all_funds.clicked.connect(self.select_all)
 
@@ -101,9 +103,29 @@ class FundSelectionDialog(tk.W.QDialog):
         buttons.rejected.connect(self.reject)
         buttons.setCenterButtons(True)
         layout.addWidget(buttons)
-        self.resize(420, min(480, max(220, contents.sizeHint().height() + 110)))
+        self.resize(420, min(480, max(240, self.sizeHint().height())))
         appearance = controller(window)
         dark_titlebar(self, theme=appearance.theme if appearance else 'light')
+
+    @staticmethod
+    def fund_list(layout, funds, checked):
+        scroll = tk.W.QScrollArea()
+        scroll.setWidgetResizable(True)
+        contents = tk.W.QWidget()
+        rows = tk.W.QVBoxLayout(contents)
+        choices = {}
+        for name in funds:
+            check = tk.W.QCheckBox((name or '미지정').replace('&', '&&'))
+            check.setChecked(name in checked)
+            rows.addWidget(check)
+            choices[name] = check
+        rows.addStretch()
+        scroll.setWidget(contents)
+        layout.addWidget(scroll)
+        return choices
+
+    def grouped_funds(self):
+        return frozenset(name for name, check in self.members.items() if check.isChecked())
 
     def selected_funds(self):
         return {name for name, check in self.choices.items() if check.isChecked()} or None
@@ -117,8 +139,8 @@ class FundSelectionDialog(tk.W.QDialog):
         self.all_funds.setChecked(True)
 
 
-def draw_fund_statement(grid, report, fund):
-    funds, rows = report.fund_statement(fund) if report else ([], [])
+def draw_fund_statement(grid, report, fund, level='목'):
+    funds, rows = report.fund_statement(fund, level) if report else ([], [])
     headers = [*(name or '재원 미지정' for name in funds), '합계(원)']
     grid.clear()
     grid.setColumnCount(len(headers))
@@ -167,9 +189,12 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
     view = labeled_box('보기')
     compact_combo(view, [SUMMARY, *VIEWS])
     view.current(0)
+    level = labeled_box('집계 단위')
+    compact_combo(level, ACCOUNT_LEVELS)
+    level.set('목')
     fund = ttk.Button(bar, text='재원 선택 · 전체 재원', state='disabled', command=lambda: choose_funds())
     fund.pack(side='left')
-    for control in (year_box, upload, view, fund):
+    for control in (year_box, upload, view, level, fund):
         policy = control._q.sizePolicy()
         policy.setVerticalPolicy(tk.W.QSizePolicy.Policy.Minimum)
         control._q.setSizePolicy(policy)
@@ -195,9 +220,20 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
     selected_funds = None
 
     def choose_funds():
-        dialog = FundSelectionDialog(window, available_funds, selected_funds)
+        if result is None:
+            return
+        dialog = FundSelectionDialog(window, available_funds, selected_funds, result.scholarship_funds)
         try:
             if dialog.exec() == tk.W.QDialog.DialogCode.Accepted:
+                # A replacement ledger can temporarily omit previously configured members.
+                members = dialog.grouped_funds() | result.scholarship_funds.difference(available_funds)
+                if members != result.scholarship_funds:
+                    try:
+                        save_scholarship_funds(folder, year_box.get(), members)
+                    except OSError as error:
+                        tk.messagebox.showerror('재원 묶음 저장', str(error), parent=window)
+                        return
+                    result.scholarship_funds = members
                 apply_funds(dialog.selected_funds())
         finally:
             dialog.deleteLater()
@@ -215,10 +251,11 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
 
     def show(event=None):
         name = view.get()
+        level.master._q.setVisible(name == SUMMARY)
         if name == SUMMARY:
             detail.pack_forget()
             summary.pack(fill='both', expand=True)
-            draw_fund_statement(grid, result, selected_funds)
+            draw_fund_statement(grid, result, selected_funds, level.get())
             return
         summary.pack_forget()
         detail.pack(fill='both', expand=True)
@@ -289,6 +326,7 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
 
     year_box.bind('<<ComboboxSelected>>', open_year)
     view.bind('<<ComboboxSelected>>', show)
-    jobs.controls.extend((upload, fund, view, year_box))
+    level.bind('<<ComboboxSelected>>', show)
+    jobs.controls.extend((upload, fund, view, level, year_box))
     show()
     return frame, refresh_years

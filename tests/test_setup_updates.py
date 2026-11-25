@@ -103,6 +103,7 @@ def test_foreground_setup_handoff(tmp_path, action):
             assert until()
 
         root = tk.Tk()
+        root.geometry('600x400+40+55')
         try:
             with patch.object(QtNetwork, 'QNetworkAccessManager', LocalNetwork), patch('startup_update.subprocess.Popen') as launch:
                 status = tk.StringVar()
@@ -114,7 +115,24 @@ def test_foreground_setup_handoff(tmp_path, action):
                 root.protocol('WM_DELETE_WINDOW', lambda: Launcher.close(SimpleNamespace(root=root)))
                 buttons = dialog._q.findChildren(tk.W.QPushButton)
                 update = next(b for b in buttons if b.text() == '업데이트 하기')
+                initial_frame = dialog._q.frameGeometry()
                 wait(update.isEnabled)
+                if action in ('patch', 'install'):
+                    tk.application().processEvents()
+                    frame = dialog._q.frameGeometry()
+                    assert frame == initial_frame
+                    owner_center = root._q.mapToGlobal(root._q.rect().center())
+                    assert (frame.center() - owner_center).manhattanLength() <= 2
+                    visible = [b for b in buttons if b.isVisible()]
+                    assert len(visible) == (3 if action == 'patch' else 2)
+                    left = min(b.geometry().left() for b in visible)
+                    right = max(b.geometry().right() for b in visible)
+                    message = dialog._q.findChild(tk.W.QLabel)
+                    contents = message.parentWidget().rect()
+                    assert message.alignment() == tk.C.Qt.AlignmentFlag.AlignCenter
+                    assert abs(left - (contents.right() - right)) <= 2
+                    bottom = max(b.geometry().bottom() for b in visible)
+                    assert abs(message.y() - (contents.bottom() - bottom)) <= 2
                 assert len(paths) == 1
                 assert not (tmp_path / 'downloads').exists()
                 if action == 'skip':
@@ -131,6 +149,8 @@ def test_foreground_setup_handoff(tmp_path, action):
                 wait(lambda: len(paths) >= 2)
                 assert paths[1].endswith('/' + filename)
                 if action == 'cancel':
+                    assert dialog._q.frameGeometry() == initial_frame
+                    assert dialog._q.findChild(tk.W.QProgressBar).isVisible()
                     next(b for b in buttons if b.text() == '취소').click()
                     paused.set()
                     assert root.winfo_exists()
