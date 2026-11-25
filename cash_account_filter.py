@@ -60,10 +60,7 @@ def filter_cash_accounts(source, target, history):
                     catalogs[year] = catalog
                 scanned += 1
                 account = tuple(normalize(row[c]) for c in (kwan, hang, mok))
-                catalog = catalogs[year]
-                if account == ('교육외수입', '예금이자수입', '예금이자') and account not in catalog:
-                    account = (*account[:2], '예금이자수입')
-                sides, purchase = match_cash_account(catalog, account)
+                sides, purchase = match_cash_account(catalogs[year], account)
                 if not sides:
                     continue
                 if purchase and ('지출' not in sides or not money(row[debit]) or money(row[credit])):

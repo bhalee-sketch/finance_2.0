@@ -48,11 +48,7 @@ def test_cashflow_reconciles_across_views(tmp_path):
     assert (report.year, report.basis, report.included, report.excluded) == ('2026', '2025', 6, 4)
     assert report.report('재원별 요약', '') == [('', 11, 50, -39)]
     assert report.report('대사업별 요약', '기금A') == [('사업1', 950, 205, 745)]
-    details = report.report('계정·대사업별 상세')
-    assert ('지출', *EQUIPMENT, '사업1', 0, 25, -25) in details
-    assert ('수입', *ASSET, '', 11, 0, 11) in details
-    assert ('지출', *ASSET, '', 0, 50, -50) in details
-    for view in ('재원별 요약', '대사업별 요약', '계정·대사업별 상세'):
+    for view in ('재원별 요약', '대사업별 요약'):
         assert [sum(row[i] for row in report.report(view)) for i in (-3, -2, -1)] == [961, 295, 666]
 
 
@@ -95,29 +91,46 @@ def test_multiple_funds_share_projects_and_include_unassigned(tmp_path):
     report = analyze_cashflow(workbook(tmp_path / '원장.xlsx', [
         (2026, *INCOME, '사업1', '기금A', 0, 100),
         (2026, *INCOME, '사업1', '', 0, 50),
+        (2026, *INCOME, '사업2', '기금A', 0, 30),
         (2026, *EXPENSE, '사업1', '', 20, 0),
         (2026, *EXPENSE, '사업2', '기금B', 40, 0),
     ]), history())
     funds = {'기금A', ''}
-    projects, rows = report.project_statement(funds)
-    assert projects == ['사업1']
-    assert rows[-1] == ('수지차액', [130])
-    assert report.report('대사업별 요약', funds) == [('사업1', 150, 20, 130)]
-    assert report.report('재원별 요약', funds) == [('', 50, 20, 30), ('기금A', 100, 0, 100)]
-    assert report.report('계정·대사업별 상세', funds) == [
-        ('수입', *INCOME, '사업1', 150, 0, 150), ('지출', *EXPENSE, '사업1', 0, 20, -20)]
+    columns, rows = report.fund_statement(funds)
+    assert columns == ['기금A', '']
+    assert rows[-1] == ('수지차액', [130, 30])
+    assert report.report('대사업별 요약', funds) == [('사업1', 150, 20, 130), ('사업2', 30, 0, 30)]
+    assert report.report('재원별 요약', funds) == [('', 50, 20, 30), ('기금A', 130, 0, 130)]
 
 
-def test_statement_summary_separates_sides_and_reconciles_every_project(tmp_path):
+def test_statement_summary_separates_sides_and_reconciles_every_fund(tmp_path):
     report = analyze_cashflow(sample(tmp_path / '원장.xlsx'), history())
-    projects, rows = report.project_statement()
-    assert projects == ['사업1', '사업2', '']
+    columns, rows = report.fund_statement()
+    assert columns == ['기금A', '기금B', '']
     assert rows == [
-        ('[수입]', None), ('전입및기부수입', [950, None, None]),
-        ('고정자산', [None, None, 11]),
+        ('[수입]', None), ('교육부', [950, None, None]),
+        ('건설중인자산', [None, None, 11]),
         ('자금수입총계', [950, 0, 11]), ('[지출]', None),
-        ('관리운영비', [180, 40, None]), ('고정자산', [25, None, 50]),
+        ('행사비', [180, 40, None]), ('건설중인자산', [None, None, 50]),
+        ('기계기구매입비', [25, None, None]),
         ('자금지출총계', [205, 40, 50]), ('수지차액', [745, -40, -39]),
     ]
-    projects, rows = report.project_statement('기금A')
-    assert projects == ['사업1'] and rows[-1] == ('수지차액', [745])
+    columns, rows = report.fund_statement('기금A')
+    assert columns == ['기금A'] and rows[-1] == ('수지차액', [745])
+
+
+def test_saved_statement_distinguishes_same_mok_in_different_paths(tmp_path):
+    reference = history()
+    other = (EXPENSE[0], '별도운영비', EXPENSE[2])
+    items = reference['2025']['datasets']['전체', '합계']['items']
+    items['지출', other] = {'section': '지출', 'path': other}
+    source = workbook(tmp_path / '원장.xlsx', [
+        (2025, *other, '사업1', '기금B', 20, 0),
+        (2025, *EXPENSE, '사업1', '기금A', 10, 0),
+    ])
+    store_cashflow(tmp_path, '2025', source, reference)
+    _, saved = read_cashflow(tmp_path, '2025')
+    _, rows = saved.fund_statement({'기금A', '기금B'})
+    assert rows[-4:] == [('행사비 (관리운영비 / 운영비)', [10, None]),
+                         ('행사비 (관리운영비 / 별도운영비)', [None, 20]),
+                         ('자금지출총계', [10, 20]), ('수지차액', [-10, -20])]

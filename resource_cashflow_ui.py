@@ -12,9 +12,8 @@ from statement_ui import table
 
 SUMMARY = '자금계산서 요약'
 VIEWS = {
-    '대사업별 요약': ('대사업',),
-    '재원별 요약': ('재원',),
-    '계정·대사업별 상세': ('구분', '관', '항', '목', '대사업'),
+    '대사업별 요약': '대사업',
+    '재원별 요약': '재원',
 }
 TOTAL_BACKGROUNDS = {
     '자금수입총계': ('#D9F1E5', '#244437'),
@@ -118,9 +117,9 @@ class FundSelectionDialog(tk.W.QDialog):
         self.all_funds.setChecked(True)
 
 
-def draw_project_statement(grid, report, fund):
-    projects, rows = report.project_statement(fund) if report else ([], [])
-    headers = [*(name or '대사업 미지정' for name in projects), '합계(원)']
+def draw_fund_statement(grid, report, fund):
+    funds, rows = report.fund_statement(fund) if report else ([], [])
+    headers = [*(name or '재원 미지정' for name in funds), '합계(원)']
     grid.clear()
     grid.setColumnCount(len(headers))
     grid.setRowCount(len(rows))
@@ -150,7 +149,8 @@ def draw_project_statement(grid, report, fund):
 def install_cashflow_tab(notebook, window, jobs, history, display_table, folder):
     frame = ttk.Frame(notebook, padding=8)
     notebook.add(frame, text='재원별 수지분석')
-    bar = wrapping_row(frame)
+    bar = wrapping_row(frame, uniform_height=True)
+    bar._q.setObjectName('CashflowToolbar')
     bar.pack(fill='x')
     def labeled_box(title):
         pair = ttk.Frame(bar)
@@ -158,7 +158,7 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
         ttk.Label(pair, text=title).pack(side='left', padx=(0, 6))
         box = ttk.Combobox(pair, state='readonly')
         box._q.setAccessibleName(title)
-        box.pack(side='left')
+        box.pack(side='left', fill='y')
         return box
 
     year_box = labeled_box('회계연도')
@@ -169,6 +169,10 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
     view.current(0)
     fund = ttk.Button(bar, text='재원 선택 · 전체 재원', state='disabled', command=lambda: choose_funds())
     fund.pack(side='left')
+    for control in (year_box, upload, view, fund):
+        policy = control._q.sizePolicy()
+        policy.setVerticalPolicy(tk.W.QSizePolicy.Policy.Minimum)
+        control._q.setSizePolicy(policy)
     note = tk.StringVar(value='계정별 원장을 올리면 자금계산서 계정 기준으로 수입과 지출을 집계합니다.')
     ttk.Label(frame, textvariable=note, style='Muted.TLabel', wraplength=1000).pack(fill='x', pady=6)
     summary = ttk.Frame(frame)
@@ -214,19 +218,17 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
         if name == SUMMARY:
             detail.pack_forget()
             summary.pack(fill='both', expand=True)
-            draw_project_statement(grid, result, selected_funds)
+            draw_fund_statement(grid, result, selected_funds)
             return
         summary.pack_forget()
         detail.pack(fill='both', expand=True)
-        dimensions = VIEWS[name]
-        headers = [*dimensions, '수입(원)', '지출(원)', '수지차액(원)']
+        headers = [VIEWS[name], '수입(원)', '지출(원)', '수지차액(원)']
         data = result.report(name, selected_funds) if result else []
-        start = len(dimensions)
-        totals = [sum(row[col] for row in data) for col in range(start, start + 3)]
-        formatted = [[*(value or '미지정' for value in row[:start]), *row[start:]] for row in data]
+        formatted = [[label or '미지정', *amounts] for label, *amounts in data]
         if result:
-            formatted.append(['합계', *([''] * (start - 1)), *totals])
-        display_table(tree, headers, formatted, range(start, start + 3))
+            totals = [sum(row[col] for row in data) for col in range(1, 4)]
+            formatted.append(['합계', *totals])
+        display_table(tree, headers, formatted, range(1, 4))
 
     def display_year(year, saved=None):
         nonlocal result, available_funds

@@ -152,7 +152,7 @@ def open_other_tasks(parent,desktop,center,open_file):
 
     window,body,status,jobs=shell(parent,'기타작업',center)
     ttk.Label(body,text='자금계산서 계정 추출',style='Section.TLabel').pack(anchor='w')
-    ttk.Label(body,text='원장 엑셀을 올리면 첫 시트에서 자금계산서 계정에 해당하는 행을 추출합니다.').pack(anchor='w',pady=6)
+    ttk.Label(body,text='원장 첫 시트에서 자금계산서 계정에 해당하는 행을 추출합니다. 교육외수입은 제외합니다.').pack(anchor='w',pady=6)
     bar=ttk.Frame(body)
     bar.pack(fill='x',pady=8)
     result=None

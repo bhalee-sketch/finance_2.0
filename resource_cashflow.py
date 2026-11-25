@@ -1,5 +1,5 @@
 """Classify ledger postings against the published cash statement's 관·항·목."""
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import closing
 from dataclasses import dataclass
 from decimal import Decimal
@@ -38,6 +38,8 @@ def account_catalog(data):
 
 
 def match_cash_account(catalog, account):
+    if account[0] == '교육외수입':
+        return None, False
     purchase = (account not in catalog and account[:2] == ('고정자산', '유형고정자산')
                 and account[2] in PURCHASES)
     if purchase:
@@ -61,52 +63,46 @@ class Cashflow:
         selected = {fund} if isinstance(fund, str) else set(fund)
         return ((key, amount) for key, amount in self.amounts.items() if key[0] in selected)
 
-    def project_statement(self, fund=None):
-        """Roll up classified postings once, at the 관 level, in statement order."""
+    def fund_statement(self, fund=None):
+        """Group fund amounts by full account path and show 목 in statement order."""
         accounts = defaultdict(lambda: defaultdict(Decimal))
-        projects = set()
-        for (_, project, side, path), amount in self._postings(fund):
-            accounts[side, path[0]][project] += amount
-            projects.add(project)
-        projects = sorted(projects, key=lambda name: (not name, name))
-        order = dict.fromkeys((side, kwan) for side, kwan, _, _ in self.ranks)
+        funds = set()
+        for (source, _, side, path), amount in self._postings(fund):
+            accounts[side, *path][source] += amount
+            funds.add(source)
+        funds = sorted(funds, key=lambda name: (not name, name))
+        order = sorted(accounts, key=self.ranks.__getitem__)
+        names = Counter((side, mok) for side, _, _, mok in order)
         rows = []
         totals = {}
         for side in ('수입', '지출'):
             rows.append((f'[{side}]', None))
-            subtotal = [Decimal(0)] * len(projects)
+            subtotal = [Decimal(0)] * len(funds)
             for key in order:
-                if key[0] != side or key not in accounts:
+                if key[0] != side:
                     continue
-                values = [accounts[key].get(project) for project in projects]
+                values = [accounts[key].get(source) for source in funds]
                 for i, value in enumerate(values):
                     if value is not None:
                         subtotal[i] += value
-                rows.append((key[1], values))
+                _, kwan, hang, mok = key
+                label = f'{mok} ({kwan} / {hang})' if names[side, mok] > 1 else mok
+                rows.append((label, values))
             rows.append((f'자금{side}총계', subtotal))
             totals[side] = subtotal
         rows.append(('수지차액', [a - b for a, b in zip(totals['수입'], totals['지출'])]))
-        return projects, rows
+        return funds, rows
 
     def report(self, view, fund=None):
+        if view not in ('재원별 요약', '대사업별 요약'):
+            raise ValueError(f'지원하지 않는 보기입니다. {view}')
         groups = defaultdict(lambda: [Decimal(0), Decimal(0)])
-        for (source, project, side, account), amount in self._postings(fund):
-            if view == '재원별 요약':
-                key = (source,)
-            elif view == '대사업별 요약':
-                key = (project,)
-            else:
-                key = (side, *account, project)
-            pair = groups[key]
-            pair[0 if side == '수입' else 1] += amount
-        if view == '계정·대사업별 상세':
-            keys = sorted(groups, key=lambda key: (key[0] != '수입', self.ranks[key[:-1]], key[-1]))
-        else:
-            keys = sorted(groups)
+        for (source, project, side, _), amount in self._postings(fund):
+            key = source if view == '재원별 요약' else project
+            groups[key][0 if side == '수입' else 1] += amount
         rows = []
-        for key in keys:
-            income, expense = groups[key]
-            rows.append((*key, income, expense, income - expense))
+        for key, (income, expense) in sorted(groups.items()):
+            rows.append((key, income, expense, income - expense))
         return rows
 
 
@@ -140,9 +136,6 @@ def analyze_cashflow(path, history, *, fiscal_year=None):
             elif posting_year != year:
                 raise ValueError(f'{number}행의 연도가 다릅니다. 한 회계연도의 원장을 선택하세요.')
             account = tuple(map(normalize, (kwan, hang, mok)))
-            if account[0] == '교육외수입':
-                excluded += 1
-                continue
             sides, purchase = match_cash_account(catalog, account)
             if not sides:
                 excluded += 1

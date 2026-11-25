@@ -98,6 +98,7 @@ QSplitter#WorkspaceSplit::handle {{ background:{bg}; width:2px; }}
         stylesheet+=f'''
 QWidget {{ font-size:{system:g}pt; }}
 QLabel {{ font-size:{description:g}pt; }}
+QWidget#CashflowToolbar QLabel {{ font-size:{system:g}pt; }}
 QLabel[role="Title.TLabel"],QLabel[role="Section.TLabel"],QLabel#WorkspaceSection,QLabel#WorkspaceBrand,QLabel#WorkspaceLocalBadge {{ font-size:{system:g}pt; }}
 QLabel#WorkspaceMuted,QLabel[role="Muted.TLabel"] {{ font-size:{description:g}pt; }}
 QAbstractItemView,QTextEdit,QPlainTextEdit,QHeaderView::section,QTableView#WorkspaceList QHeaderView::section {{ font-size:{data:g}pt; }}

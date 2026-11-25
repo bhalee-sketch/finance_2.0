@@ -3,11 +3,16 @@ import qt_ui as q
 
 
 class WrappingLayout(q.PackLayout):
+    def __init__(self, parent, uniform_height=False):
+        self.uniform_height = uniform_height
+        super().__init__(parent)
+
     def _arrange(self,width,rect=None):
         x=y=height=0;gap=8
-        for item,options in self.entries:
-            if item.widget().isHidden():continue
-            size=item.sizeHint();w=min(max(0,width),size.width());h=size.height()
+        items = [(item, item.sizeHint()) for item, _ in self.entries if not item.widget().isHidden()]
+        row_height = max((size.height() for _, size in items), default=0) if self.uniform_height else 0
+        for item,size in items:
+            w=min(max(0,width),size.width());h=row_height or size.height()
             if x and x+w>width:x=0;y+=height+gap;height=0
             if rect is not None:item.setGeometry(q.C.QRect(rect.x()+x,rect.y()+y,w,h))
             x+=w+gap;height=max(height,h)
@@ -31,6 +36,6 @@ class WrappingLayout(q.PackLayout):
                 parent.updateGeometry();parent=parent.parentWidget()
 
 
-def wrapping_row(parent):
-    frame=q.Frame(parent);WrappingLayout(frame._q)
+def wrapping_row(parent, *, uniform_height=False):
+    frame=q.Frame(parent);WrappingLayout(frame._q, uniform_height)
     return frame
