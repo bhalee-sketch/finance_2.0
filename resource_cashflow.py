@@ -71,15 +71,27 @@ class Cashflow:
                 label = SCHOLARSHIP_GROUP if source in self.scholarship_funds else source
                 yield (label, project, side, path), amount
 
-    def fund_statement(self, fund=None, level='목'):
+    def _ordered_funds(self, names, *, unassigned_last=False):
+        def sort_key(name):
+            grouped = bool(self.scholarship_funds) and name == SCHOLARSHIP_GROUP
+            return (not grouped, unassigned_last and not name, name)
+        return sorted(names, key=sort_key)
+
+    def fund_statement(self, fund=None, level='목', *, exclude_zero_balance=False):
         """Roll up each fund to the selected account level in cash statement order."""
         depth = ACCOUNT_LEVELS.index(level) + 1
         accounts = defaultdict(lambda: defaultdict(Decimal))
-        funds = set()
         for (source, _, side, path), amount in self._postings(fund):
             accounts[side, *path[:depth]][source] += amount
-            funds.add(source)
-        funds = sorted(funds, key=lambda name: (not name, name))
+        if exclude_zero_balance:
+            balances = defaultdict(Decimal)
+            for (side, *_), amounts in accounts.items():
+                for source, value in amounts.items():
+                    balances[source] += value if side == '수입' else -value
+            visible_funds = {source for source, balance in balances.items() if balance}
+        else:
+            visible_funds = {source for amounts in accounts.values() for source, value in amounts.items() if value}
+        funds = self._ordered_funds(visible_funds, unassigned_last=True)
         ranked_groups = dict.fromkeys(key[:depth + 1] for key in self.ranks)
         order = [key for key in ranked_groups if key in accounts]
         names = Counter((key[0], key[-1]) for key in order)
@@ -104,7 +116,7 @@ class Cashflow:
         rows.append(('수지차액', [a - b for a, b in zip(totals['수입'], totals['지출'])]))
         return funds, rows
 
-    def report(self, view, fund=None):
+    def report(self, view, fund=None, *, exclude_zero_balance=False):
         if view not in ('재원별 요약', '대사업별 요약'):
             raise ValueError(f'지원하지 않는 보기입니다. {view}')
         groups = defaultdict(lambda: [Decimal(0), Decimal(0)])
@@ -112,8 +124,11 @@ class Cashflow:
             key = source if view == '재원별 요약' else project
             groups[key][0 if side == '수입' else 1] += amount
         rows = []
-        for key, (income, expense) in sorted(groups.items()):
-            rows.append((key, income, expense, income - expense))
+        order = self._ordered_funds(groups) if view == '재원별 요약' else sorted(groups)
+        for key in order:
+            income, expense = groups[key]
+            if not exclude_zero_balance or income != expense:
+                rows.append((key, income, expense, income - expense))
         return rows
 
 

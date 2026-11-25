@@ -218,16 +218,16 @@ def test_scholarship_group_reloads_and_sums_only_visible_members(tmp_path):
         (2025, *INCOME, '사업1', '재원A', 0, 100),
         (2025, *EXPENSE, '사업2', '재원B', 30, 0),
         (2025, *INCOME, '사업2', SCHOLARSHIP_GROUP, 0, -5),
-        (2025, *INCOME, '사업2', '일반', 0, 70),
+        (2025, *INCOME, '사업2', '(일반)기타자금', 0, 70),
     ])
     _, original = store_cashflow(tmp_path, '2025', source, history())
     save_scholarship_funds(tmp_path, '2025', {'재원A', '재원B'})
     _, grouped = read_cashflow(tmp_path, '2025')
-    assert grouped.report('재원별 요약') == [(SCHOLARSHIP_GROUP, 95, 30, 65), ('일반', 70, 0, 70)]
+    assert grouped.report('재원별 요약') == [(SCHOLARSHIP_GROUP, 95, 30, 65), ('(일반)기타자금', 70, 0, 70)]
     assert grouped.report('대사업별 요약') == original.report('대사업별 요약')
     for level in ('관', '항', '목'):
         funds, rows = grouped.fund_statement(level=level)
-        assert funds == [SCHOLARSHIP_GROUP, '일반']
+        assert funds == [SCHOLARSHIP_GROUP, '(일반)기타자금']
         assert dict(rows)['자금수입총계'] == [95, 70]
         assert dict(rows)['자금지출총계'] == [30, 0]
         assert dict(rows)['수지차액'] == [65, 70]
@@ -238,3 +238,46 @@ def test_scholarship_group_reloads_and_sums_only_visible_members(tmp_path):
     assert store_cashflow(tmp_path, '2026', source, history())[1] == original
     save_scholarship_funds(tmp_path, '2025', set())
     assert read_cashflow(tmp_path, '2025')[1] == original
+
+
+def test_statement_hides_only_funds_with_no_nonzero_account_at_displayed_level(tmp_path):
+    from resource_cashflow import SCHOLARSHIP_GROUP
+
+    report = analyze_cashflow(workbook(tmp_path / '원장.xlsx', [
+        (2025, *EXPENSE, '사업1', '거래없음', 0, 0),
+        (2025, *INCOME, '사업1', '장학A', 0, 90),
+        (2025, *INCOME, '사업2', '장학B', 90, 0),
+        (2025, *INCOME, '사업1', '수지균형', 0, 50),
+        (2025, *EXPENSE, '사업1', '수지균형', 50, 0),
+        (2025, *ASSET, '사업1', '지출상계', 20, 0),
+        (2025, *EQUIPMENT, '사업1', '지출상계', 0, 20),
+    ]), history())
+    report.scholarship_funds = frozenset({'장학A', '장학B'})
+    for level in ('관', '항', '목'):
+        funds, rows = report.fund_statement(level=level)
+        assert funds == (['수지균형', '지출상계'] if level == '목' else ['수지균형'])
+        assert sum(dict(rows)['자금수입총계']) == sum(dict(rows)['자금지출총계']) == 50
+        assert report.fund_statement('거래없음', level)[0] == []
+        assert report.fund_statement('장학B', level)[0] == [SCHOLARSHIP_GROUP]
+
+
+def test_zero_balance_filter_applies_after_grouping_and_fund_selection(tmp_path):
+    from resource_cashflow import SCHOLARSHIP_GROUP
+
+    report = analyze_cashflow(workbook(tmp_path / '원장.xlsx', [
+        (2025, *INCOME, '사업1', '장학A', 0, 30),
+        (2025, *EXPENSE, '사업1', '장학B', 30, 0),
+        (2025, *INCOME, '사업2', '일반', 0, 50),
+        (2025, *EXPENSE, '사업3', '기타', 20, 0),
+    ]), history())
+    report.scholarship_funds = frozenset({'장학A', '장학B'})
+    for level in ('관', '항', '목'):
+        funds, rows = report.fund_statement(level=level, exclude_zero_balance=True)
+        assert funds == ['기타', '일반']
+        assert dict(rows)['수지차액'] == [-20, 50]
+        assert dict(rows)['자금수입총계'] == [0, 50]
+        assert dict(rows)['자금지출총계'] == [20, 0]
+        assert report.fund_statement('장학B', level, exclude_zero_balance=True)[0] == [SCHOLARSHIP_GROUP]
+        assert report.fund_statement(level=level)[0][0] == SCHOLARSHIP_GROUP
+    assert report.report('재원별 요약', exclude_zero_balance=True) == [('기타', 0, 20, -20), ('일반', 50, 0, 50)]
+    assert report.report('대사업별 요약', exclude_zero_balance=True) == [('사업2', 50, 0, 50), ('사업3', 0, 20, -20)]

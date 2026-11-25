@@ -9,11 +9,13 @@ class WrappingLayout(q.PackLayout):
 
     def _arrange(self,width,rect=None):
         x=y=height=0;gap=8
-        items = [(item, item.sizeHint()) for item, _ in self.entries if not item.widget().isHidden()]
-        row_height = max((size.height() for _, size in items), default=0) if self.uniform_height else 0
-        for item,size in items:
+        items = [(item, item.sizeHint(), options) for item, options in self.entries if not item.widget().isHidden()]
+        row_height = max((size.height() for _, size, _ in items), default=0) if self.uniform_height else 0
+        for item,size,options in items:
             w=min(max(0,width),size.width());h=row_height or size.height()
             if x and x+w>width:x=0;y+=height+gap;height=0
+            if item is items[-1][0] and options.get('side') == 'right':
+                x = width - w
             if rect is not None:item.setGeometry(q.C.QRect(rect.x()+x,rect.y()+y,w,h))
             x+=w+gap;height=max(height,h)
         return y+height

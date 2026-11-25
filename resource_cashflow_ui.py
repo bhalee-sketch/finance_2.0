@@ -45,10 +45,12 @@ class AccountHeader(tk.W.QHeaderView):
 class CashflowAmountDelegate(tk.W.QStyledItemDelegate):
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
-        if not (option.displayAlignment & tk.C.Qt.AlignmentFlag.AlignRight) or not option.text.startswith('-'):
+        if not (option.displayAlignment & tk.C.Qt.AlignmentFlag.AlignRight):
             return
-        if option.text == '-0':
-            option.text = '0'
+        if option.text in ('0', '-0'):
+            option.text = '0원'
+            return
+        if not option.text.startswith('-'):
             return
         option.text = f'({option.text[1:]})'
         red = tk.G.QColor('#B42328' if option.palette.base().color().lightness() > 128 else '#FF999C')
@@ -139,8 +141,8 @@ class FundSelectionDialog(tk.W.QDialog):
         self.all_funds.setChecked(True)
 
 
-def draw_fund_statement(grid, report, fund, level='목'):
-    funds, rows = report.fund_statement(fund, level) if report else ([], [])
+def draw_fund_statement(grid, report, fund, level='목', *, exclude_zero_balance=False):
+    funds, rows = report.fund_statement(fund, level, exclude_zero_balance=exclude_zero_balance) if report else ([], [])
     headers = [*(name or '재원 미지정' for name in funds), '합계(원)']
     grid.clear()
     grid.setColumnCount(len(headers))
@@ -157,9 +159,7 @@ def draw_fund_statement(grid, report, fund, level='목'):
             continue
         total = sum(value for value in values if value is not None)
         for col, value in enumerate([*values, total]):
-            if value is None:
-                continue
-            item = tk.W.QTableWidgetItem(amount_text(value))
+            item = tk.W.QTableWidgetItem(amount_text(0 if value is None else value))
             item.setTextAlignment(tk.C.Qt.AlignmentFlag.AlignRight | tk.C.Qt.AlignmentFlag.AlignVCenter)
             item.setFont(font)
             grid.setItem(row, col, item)
@@ -194,7 +194,10 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
     level.set('목')
     fund = ttk.Button(bar, text='재원 선택 · 전체 재원', state='disabled', command=lambda: choose_funds())
     fund.pack(side='left')
-    for control in (year_box, upload, view, level, fund):
+    exclude_zero = tk.BooleanVar(value=False)
+    balance_filter = ttk.Checkbutton(bar, text='수지차액 0원 제외', variable=exclude_zero, command=lambda: show())
+    balance_filter.pack(side='right')
+    for control in (year_box, upload, view, level, fund, balance_filter):
         policy = control._q.sizePolicy()
         policy.setVerticalPolicy(tk.W.QSizePolicy.Policy.Minimum)
         control._q.setSizePolicy(policy)
@@ -255,12 +258,12 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
         if name == SUMMARY:
             detail.pack_forget()
             summary.pack(fill='both', expand=True)
-            draw_fund_statement(grid, result, selected_funds, level.get())
+            draw_fund_statement(grid, result, selected_funds, level.get(), exclude_zero_balance=exclude_zero.get())
             return
         summary.pack_forget()
         detail.pack(fill='both', expand=True)
         headers = [VIEWS[name], '수입(원)', '지출(원)', '수지차액(원)']
-        data = result.report(name, selected_funds) if result else []
+        data = result.report(name, selected_funds, exclude_zero_balance=exclude_zero.get()) if result else []
         formatted = [[label or '미지정', *amounts] for label, *amounts in data]
         if result:
             totals = [sum(row[col] for row in data) for col in range(1, 4)]
@@ -327,6 +330,6 @@ def install_cashflow_tab(notebook, window, jobs, history, display_table, folder)
     year_box.bind('<<ComboboxSelected>>', open_year)
     view.bind('<<ComboboxSelected>>', show)
     level.bind('<<ComboboxSelected>>', show)
-    jobs.controls.extend((upload, fund, view, level, year_box))
+    jobs.controls.extend((upload, fund, view, level, year_box, balance_filter))
     show()
     return frame, refresh_years

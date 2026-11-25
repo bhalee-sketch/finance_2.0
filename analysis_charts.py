@@ -203,9 +203,15 @@ VALUE_LABEL_OFFSETS=sorted(((dy,dx) for dy in (0,-18,18,-36,36,-54,54) for dx in
                            key=lambda pair:pair[0]**2+pair[1]**2*.7+(180 if pair[0]>0 else 0))
 
 
-def value_labels(canvas,labels,left,top,right,bottom,segments=(),*,skip_overlaps=False):
+def value_labels(canvas,labels,left,top,right,bottom,segments=(),*,skip_overlaps=False,obstacles=(),max_shift=None):
     """모든 선을 그린 후 숫자를 최상단에 배치하고 인접 라벨 겹침을 피한다."""
-    occupied=[]
+    occupied=list(obstacles)
+    offsets=VALUE_LABEL_OFFSETS
+    if max_shift is not None:
+        # Try finer vertical steps in the gap between a bar and the total line.
+        offsets=sorted(((dy,dx) for dy in range(-6*max(2,int((bottom-top)/6)),25,6)
+                        for dx in (0,6,-6,12,-12,24,-24,36,-36) if abs(dx)<=max_shift),
+                       key=lambda pair:pair[0]**2+pair[1]**2+(180 if pair[0]>0 else 0))
     for x,y,text,color,size in labels:
         anchor={'anchor':'s'} if skip_overlaps else {}
         item=canvas.create_text(x,y,text=text,fill=color,font=('맑은 고딕',size,'bold'),tags='chart_value',**anchor)
@@ -216,7 +222,7 @@ def value_labels(canvas,labels,left,top,right,bottom,segments=(),*,skip_overlaps
         x=max(left+half+10,min(right-half-6,x));chosen=None
         # Prefer labels above their own point. Use horizontal staggering before
         # falling back below, and keep all backgrounds clear of the y axis.
-        for offset,dx in VALUE_LABEL_OFFSETS:
+        for offset,dx in offsets:
             cy=max(top+hh+3,min(bottom-hh,y+offset))
             cx=max(left+half+10,min(right-half-6,x+dx));candidate=(cx-half,cy-hh,cx+half,cy+hh)
             if all(candidate[2]<b[0] or candidate[0]>b[2] or candidate[3]<b[1] or candidate[1]>b[3] for b in occupied) and not any(segment_hits_box(seg,candidate) for seg in segments):
@@ -304,28 +310,57 @@ def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,wh
     lo,hi,step=nice_axis(low*1.16 if whole_won else low,high*(1.25 if whole_won else 1.16))
     legend=[*names,'합계'] if show_total else names
     left=max(75,20+max(len(f'{int(lo):,}'),len(f'{int(hi):,}'))*8) if whole_won else 75
-    right=w-25;top=top_legend(canvas,legend,w,24 if legend_below_title else 0)+12;bottom=h-35
+    # Allow the last secondary label to extend past its month on the right.
+    secondary_width=secondary_height=0
+    if whole_won and len(names)==2:
+        amounts=[format_value(row[2]) for row in rows if row[2] is not None]
+        if amounts:
+            sample=canvas.create_text(0,0,text=max(amounts,key=len),font=('맑은 고딕',9,'bold'))
+            bounds=canvas.bbox(sample)
+            secondary_width=math.ceil(bounds[2]-bounds[0])+10
+            secondary_height=math.ceil(bounds[3]-bounds[1])+4
+            canvas.delete(sample)
+    right=w-max(25,secondary_width/2+6)
+    top=top_legend(canvas,legend,w,24 if legend_below_title else 0)+12;bottom=h-35
+    slot=(right-left)/len(rows);bw=slot*.72/max(1,len(names))
+    label_rows=0
+    if secondary_width:
+        if slot-secondary_width-4 >= slot*.14:
+            bw=min(bw,slot-secondary_width-4)
+        else:
+            # In narrow monthly plots, use staggered labels below their months.
+            label_rows=math.ceil(secondary_width/slot)
+            if bottom-label_rows*secondary_height >= top+40:
+                bottom-=label_rows*secondary_height
+            else:
+                label_rows=0
     y=lambda v:bottom-(float(v)/scale-lo)/(hi-lo)*(bottom-top)
     for v in range(int(lo),int(hi)+1,int(step)):
         pos=y(v*scale);canvas.create_line(left,pos,right,pos,fill='#2C384B')
         canvas.create_text(left-8,pos,text=f'{v:,}',anchor='e',fill='#A9B8CC',font=('맑은 고딕',9))
     canvas.create_line(left,top,left,bottom,right,bottom,fill='#8D9CB3')
     canvas.create_text(left,13,anchor='w',text=f'{amount_label} ({unit})',fill='#B9CCDF')
-    slot=(right-left)/len(rows);bw=slot*.72/max(1,len(names))
-    bar_labels=[];total_labels=[];segments=[]
+    bar_labels=[];total_labels=[];segments=[];bar_boxes=[]
     for i,row in enumerate(rows):
         cx=left+slot*(i+.5)
         period_anchor={'anchor':'n'} if whole_won else {}
         canvas.create_text(cx,bottom+(8 if whole_won else 16),text=row[0],fill='#C9D8E8',font=('맑은 고딕',9),**period_anchor)
         for j,value in enumerate(row[1:]):
             if value is None:continue
-            color=COLORS[j%len(COLORS)];x=cx-slot*.36+bw*j
+            color=COLORS[j%len(COLORS)];x=cx+bw*(j-len(names)/2)
             bar_end=y(value)
             item=canvas.create_rectangle(x,bar_end,x+bw-2,y(0),fill=color,outline='')
             bind_tip(canvas,item,detail(row[0],names[j],value))
             if whole_won:
-                bar_labels.append((x+(bw-2)/2,bar_end+(-20 if value>=0 else 20),format_value(value),color,9))
-                segments.append(((x,bar_end),(x+bw-2,bar_end)))
+                bar_boxes.append((x-2,min(bar_end,y(0))-2,x+bw,max(bar_end,y(0))+2))
+                label_x=x+(bw-2)/2
+                if j==1 and label_rows:
+                    canvas.create_text(cx,bottom+30+(i%label_rows)*secondary_height,anchor='n',
+                                       text=format_value(value),fill=color,font=('맑은 고딕',9,'bold'),tags='chart_value')
+                    continue
+                if j==1 and secondary_width:
+                    label_x=max(label_x,cx+secondary_width/2+1)
+                bar_labels.append((label_x,bar_end+(-15 if value>=0 else 15),format_value(value),color,9))
             else:
                 canvas.create_text(x+bw/2,bar_end+(-10 if value>=0 else 10),text=format_value(value),fill=color,font=('맑은 고딕',9,'bold'))
 
@@ -341,9 +376,10 @@ def bars(canvas,headers,rows,amount_label='결산',legend_below_title=False,*,wh
             draw_curve(canvas,(previous,point),color)
             segments.append((previous,point))
         previous=point
-        segments.append((point,point))
+        bar_boxes.append((x-5,yy-5,x+5,yy+5))
         item=canvas.create_oval(x-4,yy-4,x+4,yy+4,fill=color,outline=BG)
         bind_tip(canvas,item,detail(rows[i][0],'합계',total))
         total_labels.append((x,yy-22,format_value(total),color,9))
     if bar_labels or total_labels:
-        value_labels(canvas,total_labels+bar_labels,left,top,right,bottom,segments,skip_overlaps=whole_won)
+        value_labels(canvas,bar_labels+total_labels,left,top,w-1,bottom,segments,
+                     skip_overlaps=whole_won,obstacles=bar_boxes,max_shift=slot*.4)
