@@ -249,8 +249,14 @@ def grant_bars(canvas,headers,rows,counts=None):
     totals=[sum(r[1:]) if all(v is not None for v in r[1:]) else None for r in rows]
     if any(v<0 for v in values):lines(canvas,headers,rows,'국고보조금');return
     step=totalstep=5000
-    maximum=max(5000,math.ceil(max([1]+values)*1.08/5000)*5000)
-    totalmax=max(5000,math.ceil(max([1]+[float(v)/1e6 for v in totals if v is not None])*1.08/5000)*5000)
+    # Leave room for both amounts when a tall bar meets the total line.
+    sample=canvas.create_text(0,0,text='00,000',font=('맑은 고딕',10,'bold'))
+    bounds=canvas.bbox(sample)
+    canvas.delete(sample)
+    headroom=min((bottom-top)/2,2*(bounds[3]-bounds[1])+20)
+    scale=max(1.08,(bottom-top)/(bottom-top-headroom))
+    maximum=max(5000,math.ceil(max([1]+values)*scale/5000)*5000)
+    totalmax=max(5000,math.ceil(max([1]+[float(v)/1e6 for v in totals if v is not None])*scale/5000)*5000)
     y=lambda v:bottom-float(v)/1e6/maximum*(bottom-top)
     yt=lambda v:bottom-float(v)/1e6/totalmax*(bottom-top)
     for tick in range(0,int(maximum)+1,int(step)):
