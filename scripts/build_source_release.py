@@ -11,9 +11,9 @@ from tempfile import TemporaryDirectory
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-LEDGER='data/ledgers/ledgers.sqlite3'
+LEDGERS={'data/ledgers/ledgers.sqlite3','data/ledgers/ledgers-2024.sqlite3'}
 RUNTIME_DATA={
-    LEDGER,'data/statements/statements.sqlite3','data/appendices/balance.sqlite3',
+    *LEDGERS,'data/statements/statements.sqlite3','data/appendices/balance.sqlite3',
     'data/appendices/operation.sqlite3','data/deposit/fixed_accounts.sqlite3',
     'data/deposit/regular_accounts.sqlite3','data/transfer/accounts.sqlite3',
     'data/govsubsidy/statements.json','data/fund/statements.json',
@@ -55,8 +55,8 @@ def build(label,output,working_tree=False):
         for name in sorted(filter(allowed,filter(None,files))):
             path=ROOT/name
             if path.is_symlink():raise ValueError('Symlinks are not allowed in source releases')
-            if name==LEDGER:
-                snapshot=Path(temporary)/'ledgers.sqlite3'
+            if name in LEDGERS:
+                snapshot=Path(temporary)/path.name
                 compact_ledger(path,snapshot)
                 path=snapshot
             bundle.write(path,prefix+name)

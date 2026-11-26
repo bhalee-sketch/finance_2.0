@@ -22,11 +22,16 @@ def read_connection(database):
     return sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True)
 
 
-def discover_years(database=DATABASE):
-    database = Path(database)
-    if not database.exists():return {}
-    with closing(read_connection(database)) as connection:
-        return {year: database for year, in connection.execute('SELECT fiscal_year FROM imports ORDER BY fiscal_year DESC')}
+def discover_years(database=None):
+    databases = (DATABASE, *sorted(DATABASE.parent.glob('ledgers-*.sqlite3'))) if database is None else (Path(database),)
+    years = {}
+    for path in databases:
+        if path.is_file():
+            with closing(read_connection(path)) as connection:
+                for year, in connection.execute('SELECT fiscal_year FROM imports'):
+                    if year in years:raise ValueError(f'{year}회계연도 내장 원장이 중복됩니다.')
+                    years[year] = path
+    return dict(sorted(years.items(), reverse=True))
 
 
 def encode(row):

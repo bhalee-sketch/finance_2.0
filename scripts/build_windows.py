@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 
-from build_source_release import LEDGER, ROOT, RUNTIME_DATA, allowed, compact_ledger
+from build_source_release import LEDGERS, ROOT, RUNTIME_DATA, allowed, compact_ledger
 
 sys.path.insert(0, str(ROOT))
 from release_update import REPOSITORY, version_key
@@ -24,7 +24,7 @@ def build(version, output):
     for name in sorted(RUNTIME_DATA):
         target = assets/name
         target.parent.mkdir(parents=True, exist_ok=True)
-        if name == LEDGER:
+        if name in LEDGERS:
             compact_ledger(ROOT/name, target)
         else:
             shutil.copyfile(ROOT/name, target)

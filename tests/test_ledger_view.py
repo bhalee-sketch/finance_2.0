@@ -31,8 +31,7 @@ class LedgerViewTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as folder,ExitStack() as stack:
                 stack.enter_context(patch('ledger_database.discover_years',return_value={'2025':Path(folder)/'ledger.sqlite3'}))
                 stack.enter_context(patch('analysis_runtime.load_program_ledger',return_value=records))
-                stack.enter_context(patch('analysis_runtime.program_statement_paths',return_value={'2025':Path(folder)/'finance statement'/'2025.xlsx'}))
-                stack.enter_context(patch('audit_review.load_statement_history',return_value=({},[],{})))
+                stack.enter_context(patch('analysis_runtime.load_program_statement_history',return_value=({},[],{})))
                 window=open_ledger(root,lambda:Path(folder),lambda w,x,y:w.geometry(f'{x}x{y}'),lambda p:None)
                 wait(lambda:window._work_status.get().startswith('원장 준비 완료'))
                 model=window._ledger_model;view=window._ledger_table
