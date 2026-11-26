@@ -11,9 +11,9 @@ from appendix_data import load_sheet
 class FinancialYearTests(unittest.TestCase):
     def test_all_years_and_appendix_data_load(self):
         self.assertEqual(available_years(),['2025','2024','2023','2022','2021'])
-        self.assertEqual(list(discover_statements()),['2025','2024','2023','2022','2021','2020','2019'])
+        self.assertEqual(list(discover_statements()),['2025','2024','2023','2022','2021','2020','2019','2018'])
         from statement_loader import load_statement_record_from_path
-        for year in ['2019','2020']:
+        for year in ['2018','2019','2020']:
             source=discover_statements()[year]
             self.assertEqual(load_record(source),load_statement_record_from_path(source.parent/'originals'/f'{year}회계연도.xlsx'))
             self.assertEqual(len(load_record(source)['sheets']),12)

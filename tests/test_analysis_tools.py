@@ -18,7 +18,7 @@ class AnalysisToolTests(unittest.TestCase):
 
     def test_bundled_history_without_pc_files(self):
         history,issues,paths=self.history
-        self.assertEqual(set(history),{str(y) for y in range(2019,2026)})
+        self.assertEqual(set(history),{str(y) for y in range(2018,2026)})
         self.assertEqual(issues,[])
         for year,record in history.items():
             self.assertTrue(record['datasets'],year)
