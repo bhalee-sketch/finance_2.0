@@ -28,7 +28,7 @@ class AnalysisToolTests(unittest.TestCase):
 
     def test_audit_reads_entire_ledger_and_preserves_provenance(self):
         self.assertEqual(len(self.audit['reviews']),164509)
-        self.assertEqual(self.audit['ledger_years'],['2025','2024'])
+        self.assertEqual(self.audit['ledger_years'],['2025','2024','2023'])
         self.assertFalse(self.audit['issues'])
         record=self.audit['reviews'][0]['record']
         self.assertEqual(record['_file_year'],'2025')

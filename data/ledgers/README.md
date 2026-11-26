@@ -2,6 +2,7 @@
 
 - ledgers.sqlite3: 2025회계연도 거래 164,509건
 - ledgers-2024.sqlite3: 2024회계연도 거래 149,426건
+- ledgers-2023.sqlite3: 2023회계연도 거래 140,413건
 - originals: 변경하지 않은 Excel 원본(27개 열)
 - 연도별 import-report.json에 원본 SHA-256, 열 목록, 건수·합계·전 행 대조 결과를 기록합니다.
 
@@ -18,8 +19,10 @@ payload는 finance_data.LEDGER_COLUMNS 순서, raw_json은 imports.headers_json 
 `python ledger_database.py "data/ledgers/originals/2025회계연도 계정별원장.xlsx" --year 2025`
 
 `python ledger_database.py "data/ledgers/originals/2024회계연도 계정별원장.xlsx" --year 2024 --database data/ledgers/ledgers-2024.sqlite3`
+
+`python ledger_database.py "data/ledgers/originals/2023회계연도 계정별원장.xlsx" --year 2023 --database data/ledgers/ledgers-2023.sqlite3`
 동일 파일 재실행은 중복을 만들지 않으며 같은 연도의 다른 파일은 덮어쓰지 않습니다.
-설치본과 소스 배포본은 두 연도의 조회용 DB를 `data/ledgers`에 포함합니다.
+설치본과 소스 배포본은 연도별 조회용 DB를 `data/ledgers`에 포함합니다.
 '원장등록'으로 가져온 자료는 바탕화면 `settings/계정별원장.sqlite3`에 회계연도별로 저장합니다.
 조회와 분석에서는 같은 연도에 등록한 자료를 우선 사용합니다. 기존 연도를 다시 등록하면 확인 후 해당 연도만 교체합니다.
 

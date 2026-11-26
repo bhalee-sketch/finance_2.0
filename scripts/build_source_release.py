@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-LEDGERS={'data/ledgers/ledgers.sqlite3','data/ledgers/ledgers-2024.sqlite3'}
+LEDGERS={'data/ledgers/ledgers.sqlite3','data/ledgers/ledgers-2024.sqlite3','data/ledgers/ledgers-2023.sqlite3'}
 RUNTIME_DATA={
     *LEDGERS,'data/statements/statements.sqlite3','data/appendices/balance.sqlite3',
     'data/appendices/operation.sqlite3','data/deposit/fixed_accounts.sqlite3',

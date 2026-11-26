@@ -47,8 +47,8 @@ class CashflowAmountDelegate(tk.W.QStyledItemDelegate):
         super().initStyleOption(option, index)
         if not (option.displayAlignment & tk.C.Qt.AlignmentFlag.AlignRight):
             return
-        if option.text in ('0', '-0'):
-            option.text = '0원'
+        if option.text == '-0':
+            option.text = '0'
             return
         if not option.text.startswith('-'):
             return
