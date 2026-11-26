@@ -262,6 +262,7 @@ def grant_bars(canvas,headers,rows,counts=None):
     canvas.create_text(left,14,text='목별 (백만원)',anchor='w',fill='#B9CCDF')
     canvas.create_text(right,14,text='합계 (백만원)',anchor='e',fill='#F1BB83')
     slot=(right-left)/len(rows);bw=slot*.74/max(1,len(headers)-1);segment=[];labels=[]
+    line_segments=[];obstacles=[]
     for i,row in enumerate(rows):
         center=left+slot*(i+.5)
         if all(v is None for v in row[1:]):canvas.create_text(center,top+20,text='자료 누락',fill='#F1BB83',font=('맑은 고딕',9))
@@ -270,6 +271,7 @@ def grant_bars(canvas,headers,rows,counts=None):
             if v is None:continue
             x=center-slot*.37+j*bw;color=COLORS[j%len(COLORS)]
             item=canvas.create_rectangle(x,y(v),x+bw-2,bottom,fill=color,outline='')
+            obstacles.append((x-1,y(v)-1,x+bw-1,bottom))
             bind_tip(canvas,item,amount_detail(row[0],headers[j+1],v))
             labels.append((x+bw/2,y(v)-14,million(v),color,9))
         value=totals[i]
@@ -277,12 +279,16 @@ def grant_bars(canvas,headers,rows,counts=None):
             draw_curve(canvas,segment,'#F1BB83');segment=[];continue
         if i and int(row[0])-int(rows[i-1][0])>1:
             draw_curve(canvas,segment,'#F1BB83');segment=[]
-        point=(center,yt(value));segment.append(point)
+        point=(center,yt(value))
+        if segment:line_segments.append((segment[-1],point))
+        segment.append(point)
+        obstacles.append((center-4,point[1]-4,center+4,point[1]+4))
         item=canvas.create_oval(center-3,point[1]-3,center+3,point[1]+3,fill='#F1BB83',outline=BG)
         bind_tip(canvas,item,amount_detail(row[0],'합계',value))
         labels.append((center,point[1]-20,million(value),'#F1BB83',10))
     draw_curve(canvas,segment,'#F1BB83')
-    value_labels(canvas,labels,left,top,right,bottom)
+    value_labels(canvas,labels,left,top,right,bottom,line_segments,
+                 skip_overlaps=True,obstacles=obstacles,max_shift=slot*.25)
     for j,label in enumerate([*headers[1:],'합계 (우측 축)']):
         yy=top+j*23;color='#F1BB83' if j==len(headers)-1 else COLORS[j%len(COLORS)]
         canvas.create_rectangle(w-145,yy,w-136,yy+9,fill=color,outline='')
