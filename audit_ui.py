@@ -3,18 +3,65 @@ from collections import Counter
 from pathlib import Path
 import qt_ui as tk
 from qt_ui import ttk,messagebox
-from finance_ui import shell,saved,target_file,compact_combo
+from finance_ui import shell,saved,target_file,compact_combo,content_widths
 from statement_ui import table
 from statement_catalog import amount_text
 from analysis_runtime import load_audit_sources as load_sources,program_ledger_paths
 from audit_review import (AccountOrder,review_values,review_years,select_reviews,
-                          export_review,AUDIT_HEADERS,REVIEW_VIEWS,AUDIT_VISIBLE_HEADERS,visible_review_values,normalized)
+                          export_review,AUDIT_HEADERS,CAPITAL_REVIEW,REVIEW_VIEWS,AUDIT_VISIBLE_HEADERS,visible_review_values,normalized)
 from ui_theme import dark_titlebar
+
+
+class ReviewModel(tk.C.QAbstractTableModel):
+    """Keep one reference to the filtered list and format only requested cells."""
+    result_fields={'확인 상태':'state','걸린 표현':'clue','확인 사유':'reason'}
+    role=tk.C.Qt.ItemDataRole
+
+    def __init__(self,tree):
+        super().__init__(tree._q)
+        self.tree=tree
+        self.items=[]
+
+    def replace(self,items):
+        self.beginResetModel()
+        self.items=items
+        self.endResetModel()
+
+    def rowCount(self,parent=tk.C.QModelIndex()):
+        return 0 if parent.isValid() else len(self.items)
+
+    def columnCount(self,parent=tk.C.QModelIndex()):
+        return 0 if parent.isValid() else len(AUDIT_VISIBLE_HEADERS)
+
+    def headerData(self,section,orientation,role=role.DisplayRole):
+        if role==self.role.DisplayRole and orientation==tk.C.Qt.Orientation.Horizontal:
+            return AUDIT_VISIBLE_HEADERS[section]
+
+    def data(self,index,role=role.DisplayRole):
+        if not index.isValid():
+            return None
+        title=AUDIT_VISIBLE_HEADERS[index.column()]
+        item=self.items[index.row()]
+        money=title in ('차변','대변')
+        if role in (self.role.DisplayRole,self.role.ToolTipRole,self.role.UserRole):
+            key=self.result_fields.get(title)
+            value=item[key] if key else item['record'][title]
+            return amount_text(value) if money and role!=self.role.UserRole else value
+        if role==self.role.TextAlignmentRole:
+            return tk.C.Qt.AlignmentFlag.AlignVCenter | (tk.C.Qt.AlignmentFlag.AlignRight if money else tk.C.Qt.AlignmentFlag.AlignLeft)
+        if role==self.role.FontRole:
+            return self.tree._font(None,money).q
+        if item['state'] in ('분류 의심','적요 불충분'):
+            if role==self.role.BackgroundRole:
+                color='#644C20' if item['state']=='분류 의심' else '#303E55'
+                return tk.G.QColor(self.tree._color(color))
+            if role==self.role.ForegroundRole:
+                return tk.G.QColor(self.tree._color('#FFFFFF'))
 
 
 def open_audit(parent,desktop,center,open_file):
     window,body,status,jobs=shell(parent,'계정과목 검토',center,show_status=False)
-    settings=desktop()/'settings';data=None;selected=[];page=0;page_size=200
+    settings=desktop()/'settings';data=None
 
     def wrapped_label(**kwargs):
         label=ttk.Label(body,wraplength=1100,**kwargs)
@@ -47,10 +94,12 @@ def open_audit(parent,desktop,center,open_file):
     wrapped_label(textvariable=info,style='Accent.TLabel').pack(fill='x',pady=(0,5))
     wrapped_label(text='2023.12 해설서 기반의 제한적 적요 점검입니다. 탐지 사항 없음은 적정 판정이 아니며, 규칙 미등록 과목은 미점검입니다.',style='Muted.TLabel').pack(fill='x',pady=(0,7))
     review_tab=ttk.Frame(body);review_tab.pack(fill='both',expand=True)
-    pager=ttk.Frame(review_tab);pager.pack(side='bottom',fill='x',pady=6);page_text=tk.StringVar()
-    ttk.Label(pager,textvariable=page_text).pack(side='left')
+    list_info=tk.StringVar()
+    ttk.Label(review_tab,textvariable=list_info).pack(side='bottom',anchor='w',pady=6)
     tree=table(review_tab,AUDIT_VISIBLE_HEADERS,column_preferences=True)
     view=tree._q
+    model=ReviewModel(tree)
+    tree.proxy.setSourceModel(model)
     header=view.horizontalHeader()
     header.setMinimumSectionSize(30)
     header.setSectionResizeMode(tk.W.QHeaderView.ResizeMode.Interactive)
@@ -58,39 +107,51 @@ def open_audit(parent,desktop,center,open_file):
     row_header=view.verticalHeader()
     row_header.setMinimumSectionSize(1)
 
-    for title in ('차변','대변'):
-        tree.column(title,anchor='e')
+    preferences=tree._width_preferences
+    natural_widths=[0]*len(AUDIT_VISIBLE_HEADERS)
+    fitting=False
 
-    user_sized=False
-    def remember_drag(*_):
-        nonlocal user_sized
-        if tk.W.QApplication.mouseButtons() & tk.C.Qt.MouseButton.LeftButton:
-            user_sized=True
+    def remember_drag(index,_old_width,new_width):
+        if not fitting and tk.W.QApplication.mouseButtons() & tk.C.Qt.MouseButton.LeftButton:
+            preferences.locked[AUDIT_VISIBLE_HEADERS[index]]=new_width
     header.sectionResized.connect(remember_drag)
 
     def fit_results(event=None):
+        nonlocal fitting
         row_height=max(tree._font(None,numeric).metrics('linespace') for numeric in (True,False))+3
         if row_header.defaultSectionSize()!=row_height:
             row_header.setDefaultSectionSize(row_height)
-        if user_sized or not view.isVisible() or view.viewport().width() < 100:
+        if fitting or view.viewport().width()<100:
             return
-        metrics=header.fontMetrics()
-        weights=(16,6,10,10,28,14,14,26,26,22,70,36,48,40,18)
-        widths=[max(30,metrics.horizontalAdvance(title)+16) for title in AUDIT_VISIBLE_HEADERS]
-        space=view.viewport().width()-sum(widths)
-        if space < 0:
-            weights=[width-header.minimumSectionSize() for width in widths]
-            widths=[header.minimumSectionSize()]*len(widths)
-            space=max(0,view.viewport().width()-sum(widths))
-        total_weight=max(1,sum(weights))
-        for index,(title,width,weight) in enumerate(zip(AUDIT_VISIBLE_HEADERS,widths,weights)):
-            wanted=width+space*weight//total_weight
-            if view.columnWidth(index)!=wanted:
-                tree.column(title,width=wanted)
+        minimum=[]
+        preferred=[]
+        for title,measured in zip(AUDIT_VISIBLE_HEADERS,natural_widths):
+            floor=max(header.minimumSectionSize(),header.fontMetrics().horizontalAdvance(title)+14)
+            if title in ('차변','대변'):
+                floor=max(floor,measured)
+            minimum.append(preferences.width(title,floor))
+            preferred.append(preferences.width(title,max(floor,measured)))
+        # Keep short identifiers intact and shrink the widest descriptions first.
+        if sum(minimum)>view.viewport().width():
+            minimum=[preferences.width(title,header.minimumSectionSize()) for title in AUDIT_VISIBLE_HEADERS]
+        low,high=0,max(preferred)
+        while low<high:
+            cap=(low+high+1)//2
+            total=sum(max(floor,min(width,cap)) for floor,width in zip(minimum,preferred))
+            if total<=view.viewport().width():
+                low=cap
+            else:
+                high=cap-1
+        fitting=True
+        try:
+            for i,title in enumerate(AUDIT_VISIBLE_HEADERS):
+                width=max(minimum[i],min(preferred[i],low))
+                if view.columnWidth(i)!=width:
+                    tree.column(title,width=width)
+        finally:
+            fitting=False
 
     tree.bind('<Configure>',fit_results,add='+')
-    tree.tag_configure('suspect',background='#644C20',foreground='#FFFFFF')
-    tree.tag_configure('info',background='#303E55',foreground='#FFFFFF')
     def current_filters():return {k:v.get() for k,v in filters.items()}
     def options(changed=None):
         keys=list(filters)
@@ -110,33 +171,53 @@ def open_audit(parent,desktop,center,open_file):
             if index+1<len(keys) and value and value!='전체':
                 target=normalized(value)
                 candidates=[record for record in candidates if normalized(record.get(key,''))==target]
-    def show_page():
-        visible=selected[page*page_size:(page+1)*page_size]
+    measured_blocks=set()
+    def measure_visible(*_):
+        # Measure nearby rows once per block. Scrolling to the end is immediate
+        # even for an entire fiscal year of ledger entries.
+        first=max(0,view.rowAt(0))
+        last=view.rowAt(view.viewport().height()-1)
+        if last<0:
+            last=min(model.rowCount()-1,first+max(1,view.viewport().height()//max(1,row_header.defaultSectionSize())+1))
+        blocks=set(range(first//64,last//64+1))-measured_blocks
+        if not blocks:
+            return
+        rows=[]
+        for block in blocks:
+            for i in range(block*64,min((block+1)*64,model.rowCount())):
+                index=tree.proxy.mapToSource(tree.proxy.index(i,0))
+                rows.append(visible_review_values(model.items[index.row()]))
+        measured_blocks.update(blocks)
+        widths=content_widths(tree,AUDIT_VISIBLE_HEADERS,rows)
+        natural_widths[:]=map(max,natural_widths,widths)
         fit_results()
-        tree.delete(*tree.get_children())
-        for result in visible:
-            values=visible_review_values(result)
-            for column in ('차변','대변'):
-                index=AUDIT_VISIBLE_HEADERS.index(column)
-                values[index]=amount_text(values[index])
-            tag={'분류 의심':'suspect','적요 불충분':'info'}.get(result['state'])
-            tree.insert('','end',values=values,tags=(tag,) if tag else ())
-        page_text.set(f'{page+1}/{max(1,(len(selected)+page_size-1)//page_size)}쪽 · 표시 {len(selected):,}건 · 더블클릭: 상세 근거 · Excel: 표시 조건 전체')
-    def move(delta):
-        nonlocal page
-        page=max(0,min(max(0,(len(selected)-1)//page_size),page+delta));show_page()
-    for title,delta in [('다음',1),('이전',-1)]:ttk.Button(pager,text=title,command=lambda d=delta:move(d)).pack(side='right',padx=4)
+
+    def reset_measurements(*_):
+        measured_blocks.clear()
+        natural_widths[:]=[0]*len(AUDIT_VISIBLE_HEADERS)
+        measure_visible()
+        fit_results()
+
+    view.verticalScrollBar().valueChanged.connect(measure_visible)
+    tree.proxy.layoutChanged.connect(reset_measurements)
+    tree.bind('<Configure>',measure_visible,add='+')
+    window.bind('<<ThemeChanged>>',reset_measurements,add='+')
+
     def render():
-        nonlocal selected,page
         if data is None:return
         chosen=current_filters();q=query.get().strip().casefold()
         matched=select_reviews(data,source_year.get(),chosen,q)
         counts=Counter(x['state'] for x in matched)
         mode=review_view.get()
-        selected=matched if mode=='전체' else [x for x in matched if x['state']==mode]
-        page=0
+        if mode==CAPITAL_REVIEW:
+            selected=[x for x in matched if x['candidate']==CAPITAL_REVIEW]
+        else:
+            selected=matched if mode=='전체' else [x for x in matched if x['state']==mode]
         info.set(f'원장 파일 연도: {source_year.get() or "없음"} · 조건 일치 {len(matched):,}건 · 분류 의심 {counts["분류 의심"]:,}건 · 적요 불충분 {counts["적요 불충분"]:,}건 · 규칙 미등록 {counts["규칙 미등록"]:,}건')
-        show_page()
+        model.replace(selected)
+        view.scrollToTop()
+        reset_measurements()
+        list_info.set(f'표시 {len(selected):,}건 · 행을 더블클릭하면 상세 근거를 볼 수 있습니다.')
         status.set(' / '.join(data['issues']) or '과목 순서: 최신 재무제표 기준 · 원장에만 있는 과목은 해당 분류 끝에 표시 · 금액순 정렬 없음')
     def changed(key):options(key);render()
     def year_changed(event=None):
@@ -144,23 +225,22 @@ def open_audit(parent,desktop,center,open_file):
         refresh()
     year_box.bind('<<ComboboxSelected>>',year_changed)
     for key,box in boxes.items():box.bind('<<ComboboxSelected>>',lambda e,k=key:changed(k))
-    def detail(event=None):
-        ids=tree.selection()
-        if not ids:return
-        index=page*page_size+tree.index(ids[0]);item=selected[index]
+    def detail(index):
+        row=tree.proxy.mapToSource(index).row()
+        item=model.items[row]
         dialog=tk.Toplevel(window);dialog.title('계정과목 검토 · 거래 상세');dark_titlebar(dialog);center(dialog,850,620)
         text=tk.Text(dialog,bg='#192131',fg='#EDF2FA',insertbackground='#EDF2FA',wrap='word',padx=16,pady=16,font=('맑은 고딕',11))
-        scrollbar=ttk.Scrollbar(dialog,command=text.yview);text.configure(yscrollcommand=scrollbar.set);scrollbar.pack(side='right',fill='y');text.pack(fill='both',expand=True)
+        text.pack(fill='both',expand=True)
         lines=[f'{label}: {value}' for label,value in zip(AUDIT_HEADERS,review_values(item)) if value!='']
         text.insert('1.0','\n'.join(lines));text.configure(state='disabled')
-    tree.bind('<Double-1>',detail)
+    view.doubleClicked.connect(detail)
     def refresh():
-        nonlocal data,selected
+        nonlocal data
         if jobs.busy:return
         try:available=program_ledger_paths(settings)
         except ValueError as e:messagebox.showerror('원장 확인',str(e),parent=window);return
         if source_year.get() not in available:source_year.set(next(iter(available),''))
-        data=None;selected=[];tree.delete(*tree.get_children());year_box.configure(values=list(available))
+        data=None;model.replace([]);list_info.set('');year_box.configure(values=list(available))
         def done(result):
             nonlocal data
             data=result;years=review_years(data);year_box.configure(values=years)
@@ -175,7 +255,7 @@ def open_audit(parent,desktop,center,open_file):
         if Path(path).resolve() in {Path(p).resolve() for p in data['sources']}:
             messagebox.showerror('저장 위치','원본과 다른 이름으로 저장하세요.',parent=window);return
         chosen=current_filters()|{'원장 연도':source_year.get(),'표시':review_view.get(),'검색':query.get()}
-        snapshot=list(selected);snapshot_data=data
+        snapshot=model.items;snapshot_data=data
         def work():
             from analysis_runtime import statement_folder
             statement_folder()

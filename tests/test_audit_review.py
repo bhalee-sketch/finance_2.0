@@ -11,14 +11,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from openpyxl import load_workbook
 from PySide6.QtTest import QTest
 import qt_ui as q
-from audit_review import AccountOrder, AUDIT_VISIBLE_HEADERS, export_review, inspect_record
+from audit_review import AccountOrder, CAPITAL_REVIEW, AUDIT_VISIBLE_HEADERS, export_review, inspect_record
 from audit_ui import open_audit
 from finance_data import LEDGER_COLUMNS
 
 
-def review(subject, memo):
+def review(subject, memo, **fields):
     record = dict.fromkeys(LEDGER_COLUMNS, '')
     record.update(년도='2025', 목=subject, 적요=memo, 차변=1000, 대변=0)
+    record.update(fields)
     return inspect_record(record)
 
 
@@ -44,9 +45,26 @@ class AuditReviewTests(unittest.TestCase):
         self.assertEqual(review('여비교통비', '토너 구입 취소')['state'], '원거래 확인')
         self.assertEqual(review('새 과목', '토너 구입')['state'], '규칙 미등록')
 
-    def test_filtered_table_drag_paging_and_export(self):
+    def test_facility_capital_screening(self):
+        for memo in ('본관 강의실 용도 변경 공사', '피난시설 설치 공사', '냉난방기 신규 설치',
+                     '수변전설비 증설', '기계 내용연수 연장', '전소된 건물 복구', '실험실 환경개선공사', '닥트 설치공사'):
+            with self.subTest(memo=memo):
+                item = review('신규시설과목', memo, 항='시설관리비', 차변=10_000_000)
+                self.assertEqual(item['candidate'], CAPITAL_REVIEW)
+                self.assertIn(item['clue'], memo)
+                self.assertEqual(item['state'], '분류 의심')
+        for memo in ('외벽 도장', '파손 유리 교체', '승강기 유지보수', '기계 벨트 교체', '냉난방기 설치비 환입', '증축동 외벽 도장', '환경개선공사 중 외벽 도장'):
+            self.assertNotEqual(review('건축물관리비', memo, 항='시설관리비', 차변=12_000_000)['candidate'], CAPITAL_REVIEW)
+        for overrides in (dict(차변=9_999_999), dict(항='일반관리비'), dict(대변=10_000_000), dict(차변=-10_000_000)):
+            fields = dict(항='시설관리비', 차변=10_000_000)
+            fields.update(overrides)
+            self.assertNotEqual(review('장비관리비', '설비 용량 증설', **fields)['candidate'], CAPITAL_REVIEW)
+
+    def test_filtered_table_drag_scrolling_and_export(self):
         candidate = review('여비교통비', '복사용지 구입')
-        items = [candidate] * 201 + [review('회의비', '비용 지급'), review('회의비', '부서 회의')]
+        last_suspect = review('장비관리비', '설비 용량 증설', 항='시설관리비', 차변=10_000_000)
+        last_suspect['record']['거래선명'] = '자동차보험 거래처'
+        items = [candidate] * 200 + [last_suspect] + [review('회의비', '비용 지급'), review('회의비', '부서 회의')]
         data = dict(order=AccountOrder(records=[i['record'] for i in items]),
                     reviews=items, ledger_years=['2025'], issues=[], sources=[])
         root = q.Tk()
@@ -58,11 +76,18 @@ class AuditReviewTests(unittest.TestCase):
                 table = window._q.findChild(q.W.QTableView)
                 for _ in range(100):
                     QTest.qWait(25)
-                    if table.model().rowCount() == 200:
+                    if table.model().rowCount() == 201:
                         break
-                self.assertEqual(table.model().rowCount(), 200)
+                self.assertEqual(table.model().rowCount(), 201)
                 col = AUDIT_VISIBLE_HEADERS.index('적요')
                 header = table.horizontalHeader()
+                headings = [table.model().headerData(i, q.C.Qt.Orientation.Horizontal)
+                            for i in range(table.model().columnCount())]
+                self.assertEqual(headings[headings.index('관'):headings.index('관') + 3], ['관', '항', '목'])
+                self.assertNotIn('검토할 과목', headings)
+                self.assertNotIn('근거 페이지', headings)
+                vendor = headings.index('거래선명')
+                first_vendor_width = header.sectionSize(vendor)
                 header.setOffsetToSectionPosition(col)
                 width = header.sectionSize(col)
                 handle = q.C.QPoint(header.sectionViewportPosition(col) + width - 1, header.height() // 2)
@@ -73,10 +98,28 @@ class AuditReviewTests(unittest.TestCase):
                 adjusted = header.sectionSize(col)
                 self.assertGreater(adjusted, width)
                 buttons = {b.text(): b for b in window._q.findChildren(q.W.QPushButton)}
-                buttons['다음'].click()
-                self.assertEqual(table.model().rowCount(), 1)
+                self.assertNotIn('다음', buttons)
+                self.assertNotIn('이전', buttons)
+                table.scrollToBottom()
+                q.application().processEvents()
                 self.assertEqual(header.sectionSize(col), adjusted)
+                self.assertGreater(header.sectionSize(vendor), first_vendor_width)
+                cell = table.model().index(200, headings.index('목'))
+                table.scrollTo(cell)
+                pos = table.visualRect(cell).center()
+                QTest.mouseClick(table.viewport(), button, pos=pos)
+                QTest.mouseDClick(table.viewport(), button, pos=pos)
+                popup = next(w for w in q.application().topLevelWidgets()
+                             if w.windowTitle() == '계정과목 검토 · 거래 상세')
+                detail = popup.findChild(q.W.QTextEdit).toPlainText()
+                self.assertIn('근거 페이지: ' + last_suspect['reference'], detail)
+                self.assertIn('목: 장비관리비', detail)
+                popup.close()
                 box = next(b for b in window._q.findChildren(q.W.QComboBox) if b.currentText() == '분류 의심')
+                box.setCurrentIndex(box.findText(CAPITAL_REVIEW))
+                box.activated.emit(box.currentIndex())
+                self.assertEqual(table.model().rowCount(), 1)
+                self.assertEqual(table.model().index(0, col).data(), '설비 용량 증설')
                 box.setCurrentIndex(box.findText('적요 불충분'))
                 box.activated.emit(box.currentIndex())
                 self.assertEqual(table.model().index(0, col).data(), '비용 지급')
@@ -89,8 +132,9 @@ class AuditReviewTests(unittest.TestCase):
                     headings, row = book.active.values
                     values = dict(zip(headings, row))
                     self.assertEqual(values['걸린 표현'], '복사용지')
-                    self.assertEqual(values['검토할 과목'], '소모품비')
-                    self.assertEqual(values['현재 과목'], '여비교통비')
+                    self.assertNotIn('검토할 과목', values)
+                    self.assertNotIn('근거 페이지', values)
+                    self.assertEqual(values['목'], '여비교통비')
                 finally:
                     book.close()
         finally:
