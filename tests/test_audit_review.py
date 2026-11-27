@@ -64,7 +64,10 @@ class AuditReviewTests(unittest.TestCase):
         candidate = review('여비교통비', '복사용지 구입')
         last_suspect = review('장비관리비', '설비 용량 증설', 항='시설관리비', 차변=10_000_000)
         last_suspect['record']['거래선명'] = '자동차보험 거래처'
-        items = [candidate] * 200 + [last_suspect] + [review('회의비', '비용 지급'), review('회의비', '부서 회의')]
+        long_memo = '위원회 회의비 지급 ' * 24
+        long_voucher = '2025-ABCDEFGHIJKL-000000000123456789'
+        normal = review('회의비', long_memo, 전표번호=long_voucher)
+        items = [candidate] * 200 + [last_suspect, review('회의비', '비용 지급'), normal]
         data = dict(order=AccountOrder(records=[i['record'] for i in items]),
                     reviews=items, ledger_years=['2025'], issues=[], sources=[])
         root = q.Tk()
@@ -76,9 +79,13 @@ class AuditReviewTests(unittest.TestCase):
                 table = window._q.findChild(q.W.QTableView)
                 for _ in range(100):
                     QTest.qWait(25)
-                    if table.model().rowCount() == 201:
+                    if table.model().rowCount() == 201 and table.verticalScrollBar().isVisible():
                         break
                 self.assertEqual(table.model().rowCount(), 201)
+                vertical = table.verticalScrollBar()
+                horizontal = table.horizontalScrollBar()
+                self.assertTrue(vertical.isVisible())
+                self.assertFalse(horizontal.isVisible())
                 col = AUDIT_VISIBLE_HEADERS.index('적요')
                 header = table.horizontalHeader()
                 headings = [table.model().headerData(i, q.C.Qt.Orientation.Horizontal)
@@ -86,6 +93,22 @@ class AuditReviewTests(unittest.TestCase):
                 self.assertEqual(headings[headings.index('관'):headings.index('관') + 3], ['관', '항', '목'])
                 self.assertNotIn('검토할 과목', headings)
                 self.assertNotIn('근거 페이지', headings)
+                self.assertNotIn('확인 상태', headings)
+                self.assertNotIn('걸린 표현', headings)
+                box = next(b for b in window._q.findChildren(q.W.QComboBox) if b.currentText() == '분류 의심')
+                box.setCurrentIndex(box.findText('전체'))
+                box.activated.emit(box.currentIndex())
+                table.scrollToBottom()
+                QTest.qWait(25)
+                self.assertTrue(horizontal.isVisible())
+                for heading, value in [('적요', long_memo), ('전표번호', long_voucher)]:
+                    index = table.model().index(len(items) - 1, headings.index(heading))
+                    metrics = q.G.QFontMetrics(index.data(q.C.Qt.ItemDataRole.FontRole))
+                    self.assertGreaterEqual(header.sectionSize(index.column()), metrics.horizontalAdvance(value) + 6)
+                box.setCurrentIndex(box.findText('분류 의심'))
+                box.activated.emit(box.currentIndex())
+                QTest.qWait(25)
+                self.assertFalse(horizontal.isVisible())
                 vendor = headings.index('거래선명')
                 first_vendor_width = header.sectionSize(vendor)
                 header.setOffsetToSectionPosition(col)
@@ -100,8 +123,17 @@ class AuditReviewTests(unittest.TestCase):
                 buttons = {b.text(): b for b in window._q.findChildren(q.W.QPushButton)}
                 self.assertNotIn('다음', buttons)
                 self.assertNotIn('이전', buttons)
-                table.scrollToBottom()
+                slider = q.W.QStyleOptionSlider()
+                vertical.initStyleOption(slider)
+                grip = vertical.style().subControlRect(q.W.QStyle.ComplexControl.CC_ScrollBar,
+                    slider, q.W.QStyle.SubControl.SC_ScrollBarSlider, vertical).center()
+                bottom = q.C.QPoint(grip.x(), vertical.height() - 1)
+                QTest.mousePress(vertical, button, pos=grip)
+                QTest.mouseMove(vertical, bottom)
+                QTest.mouseRelease(vertical, button, pos=bottom)
                 q.application().processEvents()
+                self.assertEqual(vertical.value(), vertical.maximum())
+                self.assertEqual(table.rowAt(table.viewport().height() - 1), 200)
                 self.assertEqual(header.sectionSize(col), adjusted)
                 self.assertGreater(header.sectionSize(vendor), first_vendor_width)
                 cell = table.model().index(200, headings.index('목'))
@@ -114,16 +146,27 @@ class AuditReviewTests(unittest.TestCase):
                 detail = popup.findChild(q.W.QTextEdit).toPlainText()
                 self.assertIn('근거 페이지: ' + last_suspect['reference'], detail)
                 self.assertIn('목: 장비관리비', detail)
+                self.assertIn('확인 상태: 분류 의심', detail)
+                self.assertIn('걸린 표현: ' + last_suspect['clue'], detail)
                 popup.close()
-                box = next(b for b in window._q.findChildren(q.W.QComboBox) if b.currentText() == '분류 의심')
                 box.setCurrentIndex(box.findText(CAPITAL_REVIEW))
                 box.activated.emit(box.currentIndex())
                 self.assertEqual(table.model().rowCount(), 1)
+                QTest.qWait(25)
+                self.assertFalse(vertical.isVisible())
                 self.assertEqual(table.model().index(0, col).data(), '설비 용량 증설')
                 box.setCurrentIndex(box.findText('적요 불충분'))
                 box.activated.emit(box.currentIndex())
                 self.assertEqual(table.model().index(0, col).data(), '비용 지급')
                 self.assertEqual(header.sectionSize(col), adjusted)
+                # Force real column overflow and check the last column is reachable.
+                header.setMinimumSectionSize(table.viewport().width() // 4)
+                for i in range(header.count()):
+                    header.resizeSection(i, header.minimumSectionSize())
+                QTest.qWait(25)
+                self.assertTrue(horizontal.isVisible())
+                horizontal.setValue(horizontal.maximum())
+                self.assertEqual(table.columnAt(table.viewport().width() - 1), len(headings) - 1)
                 self.assertNotIn('확인할 증빙', AUDIT_VISIBLE_HEADERS)
                 target = Path(directory) / 'review.xlsx'
                 export_review(data, [candidate], {}, target)

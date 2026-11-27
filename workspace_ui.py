@@ -25,11 +25,9 @@ class Workspace:
         top=W.QFrame();top.setObjectName('WorkspaceTopbar');top.setMinimumHeight(44)
         row=W.QHBoxLayout(top);row.setContentsMargins(2,0,2,0);row.setSpacing(8)
         self.home_button=W.QToolButton();self.home_button.setObjectName('WorkspaceHomeButton')
-        self.home_button.setCheckable(True);self.home_button.setFixedSize(36,36);self.home_button.setIconSize(C.QSize(28,28))
-        icon=G.QIcon(str(Path(__file__).resolve().parent/'assets'/'home.svg'))
-        if icon.isNull():self.home_button.setText('W')
-        else:self.home_button.setIcon(icon)
-        self.home_button.setToolTip('홈');self.home_button.setAccessibleName('홈')
+        self.home_button.setCheckable(True);self.home_button.setText('대시보드')
+        self.home_button.setToolButtonStyle(C.Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.home_button.setAccessibleName('대시보드')
         self.home_button.clicked.connect(self.go_home);row.addWidget(self.home_button)
         self.top_tabs=W.QTabBar();self.top_tabs.setObjectName('WorkspaceTabs')
         self.top_tabs.setExpanding(False);self.top_tabs.setUsesScrollButtons(True)
@@ -71,8 +69,10 @@ class Workspace:
         self.layout._q.addWidget(self.notebook._q);self.notebook._q.show();self.layout._q.setStretchFactor(0,0);self.layout._q.setStretchFactor(1,1);self.layout._q.setSizes([200,1100])
         self.home=ttk.Frame(self.notebook);self.home._q.setObjectName('WorkspaceHomePanel')
         home_layout=W.QVBoxLayout(self.home._q);home_layout.setContentsMargins(0,0,0,0)
-        home_layout.addStretch()
-        self.notebook.add(self.home,text='홈')
+        from home_dashboard import Dashboard
+        self.dashboard=Dashboard(launcher.work_settings,self.open_dashboard_loans)
+        home_layout.addWidget(self.dashboard)
+        self.notebook.add(self.home,text='대시보드')
 
         footer=W.QFrame();footer.setObjectName('WorkspaceStatusbar');footer.setMinimumHeight(28)
         status_layout=W.QHBoxLayout(footer);status_layout.setContentsMargins(4,0,4,0)
@@ -126,12 +126,15 @@ class Workspace:
         if not hasattr(self,'status'):return
         current=self.notebook.select()
         home_active=current==str(self.home)
+        if home_active and getattr(self,'_home_visible',True) is False:
+            self.dashboard.planner.reload()
+        self._home_visible=home_active
         self.home_button.setChecked(home_active)
         if self.top_tabs.property('homeActive')!=home_active:
             self.top_tabs.setProperty('homeActive',home_active)
             self.top_tabs.style().unpolish(self.top_tabs);self.top_tabs.style().polish(self.top_tabs)
         if home_active:
-            self.status.set('홈')
+            self.status.set('대시보드')
             self.bind_work_status(None)
             self.detail_label.setToolTip('')
             self.detail_label.setText(f'열린 작업 {sum(w.winfo_exists() for w in self.tabs.values())}개')
@@ -164,26 +167,17 @@ class Workspace:
         self.save_discovery()
 
     def go_home(self):
-        if self.root.grab_current() is not None:return
-        self.notebook.select(self.home)
-        pending=list(self.tabs.values())
-        def close_all():
-            if not self.frame.winfo_exists():return
-            remaining=[]
-            for window in pending:
-                if not window.winfo_exists():continue
-                callback=self.closing.get(str(window))
-                if callback:callback()
-                else:window.destroy()
-                if window.winfo_exists():remaining.append(window)
-                else:
-                    if tk.isValid(window._q):self.notebook.forget(window)
-                    self.tabs={key:w for key,w in self.tabs.items() if w is not window};self.closing.pop(str(window),None)
-            pending[:]=remaining;self.sync_tabs()
-            if pending:
-                self.status.set('홈 · 처리 중인 작업은 완료 후 자동으로 닫습니다.')
-                self.root.after(250,close_all)
-        close_all()
+        if self.root.grab_current() is None:
+            self.notebook.select(self.home)
+        self.home_button.setChecked(self.notebook.select()==str(self.home))
+
+    def open_dashboard_loans(self,data,year,scope):
+        key=next((k for k,(name,_) in self.commands.items() if name=='차입금관리'),None)
+        if key:
+            self.open(key)
+            window=self.tabs.get(key)
+            if window:
+                window.show_closing_loans(data,year,scope)
 
     def cycle_tab(self,offset):
         if self.root.grab_current() is not None:return

@@ -16,6 +16,7 @@ QLabel[role="Section.TLabel"] {{ font-size:16pt; font-weight:600; }}
 QLabel[role="Muted.TLabel"] {{ color:{muted}; }}
 QLabel[role="Accent.TLabel"] {{ color:{accent}; font-weight:600; }}
 QPushButton {{ background:{panel}; border:1px solid {border}; border-radius:8px; padding:7px 12px; min-height:18px; }}
+QPushButton#DashboardLoanAmount {{ color:{accent}; background:{selection}; }}
 QPushButton:hover {{ border-color:{accent}; background:{selection}; }}
 QPushButton:focus,QToolButton:focus {{ outline:0; background:{selection}; border-color:{accent}; }}
 QPushButton:pressed {{ background:{selection}; }}
@@ -37,6 +38,8 @@ QCheckBox::indicator:disabled {{ border-color:{border}; }}
 QComboBox QAbstractItemView::item:hover,QComboBox QAbstractItemView::item:selected {{ background:{selection}; color:{text}; }}
 QGroupBox {{ border:1px solid {border}; border-radius:6px; margin-top:12px; padding:10px; }}
 QGroupBox::title {{ subcontrol-origin:margin; left:10px; padding:0 4px; color:{muted}; }}
+QGroupBox#DashboardCard::title {{ color:{'#273161' if light else text}; font-weight:700; }}
+QHeaderView#DashboardBalanceRows::section {{ padding:1px 3px; }}
 QTableView:focus {{ border-color:{accent}; }}
 QTableView {{ background:{panel}; alternate-background-color:{stripe}; border:1px solid {border}; gridline-color:{border}; selection-background-color:{selection}; selection-color:{text}; }}
 QHeaderView::section {{ background:{panel}; color:{muted}; border:0; border-bottom:1px solid {border}; border-right:1px solid {border}; padding:8px; font-weight:600; }}
@@ -50,7 +53,10 @@ QTabBar::tab:hover {{ background:{stripe}; }}
 QTabBar::tab:selected {{ color:{accent}; background:{selection}; }}
 QScrollBar:vertical {{ width:12px; background:{bg}; }}
 QScrollBar:horizontal {{ height:12px; background:{bg}; }}
-QScrollBar::handle {{ background:{border}; border-radius:5px; min-height:24px; min-width:24px; }}
+QScrollBar::handle {{ background:{muted}; border-radius:5px; }}
+QScrollBar::handle:vertical {{ min-height:24px; }}
+QScrollBar::handle:horizontal {{ min-width:24px; }}
+QScrollBar::handle:hover,QScrollBar::handle:pressed {{ background:{accent}; }}
 QScrollBar::add-line,QScrollBar::sub-line {{ width:0; height:0; }}
 QProgressBar {{ border:0; background:{panel}; min-height:5px; text-align:center; }}
 QProgressBar::chunk {{ background:{accent}; }}

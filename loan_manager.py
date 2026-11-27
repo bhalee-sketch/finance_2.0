@@ -19,6 +19,12 @@ from loan_report_style import apply_loan_sample
 ZERO=Decimal(0)
 HEADERS=['예정 원금','예정 총이자','총원리금','납부원금','납부 총이자','총 납부 원리금','상태']
 LOAN_EXCEL_SUFFIXES=('.xlsx','.xls','.xlsm')
+BUNDLED_LOANS=Path(__file__).resolve().parent/'data'/'loans'/'loan-sources.zip'
+
+
+def active_loan_archive(storage):
+    storage=Path(storage)
+    return storage if storage.is_file() else BUNDLED_LOANS
 
 
 def target_year(value):
@@ -247,7 +253,7 @@ def upload_loan_sources(paths, storage):
 @contextmanager
 def uploaded_loan_sources(storage):
     if not Path(storage).is_file():
-        raise ValueError('자료 업로드에서 차입금 원자료를 먼저 선택하세요.')
+        raise ValueError('차입금 자료를 찾을 수 없습니다. 차입금 자료 갱신에서 원자료를 선택하세요.')
     with TemporaryDirectory(prefix='loan-report-') as folder:
         with ZipFile(storage) as archive:
             for member in archive.infolist():
@@ -260,8 +266,9 @@ def uploaded_loan_sources(storage):
 
 
 def build_uploaded_loan_report(storage, year):
-    with uploaded_loan_sources(storage) as folder:
-        return build_loan_report(folder, year, source_label='최근 업로드 자료')
+    archive=active_loan_archive(storage)
+    with uploaded_loan_sources(archive) as folder:
+        return build_loan_report(folder, year, source_label='내장 자료' if archive==BUNDLED_LOANS else '최근 업로드 자료')
 
 
 def save_loan_report(wb):

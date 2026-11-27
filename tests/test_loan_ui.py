@@ -37,28 +37,33 @@ class LoanReportTests(unittest.TestCase):
                     open_loans(root, app.center_window, opener)
                     window = root.winfo_children()[0]
                     buttons = {button.text(): button for button in window._q.findChildren(q.W.QPushButton)}
-                    generate, excel = buttons['생성'], buttons['엑셀 열기']
+                    excel = buttons['엑셀 열기']
                     self.assertNotIn('원자료 목록 새로고침', buttons)
                     self.assertNotIn('폴더 변경', buttons)
-                    self.assertIs(generate.parentWidget(), excel.parentWidget())
+                    self.assertNotIn('생성', buttons)
+                    self.assertNotIn('자료 업로드', buttons)
+                    self.wait_until(lambda: excel.isEnabled() or show_error.called)
+                    self.assertIn('내장 자료 8개', window._work_status.get())
+                    self.assertFalse((base/'settings'/'loan-sources.zip').exists())
 
                     year = window._q.findChild(q.W.QSpinBox)
                     year.setValue(2025)
                     self.assertFalse(excel.isEnabled())
-                    buttons['자료 업로드'].click()
-                    self.wait_until(lambda: '저장했습니다' in window._work_status.get() or show_error.called)
+                    self.wait_until(lambda: '2025년 차입금 현황' in window._work_status.get() or show_error.called)
+                    buttons['차입금 자료 갱신'].click()
+                    self.wait_until(lambda: '갱신 자료 1개' in window._work_status.get() or show_error.called)
                     show_error.assert_not_called()
                     self.assertEqual(source.read_bytes(), original)
                     source.unlink()
                     window.destroy()
                     open_loans(root, app.center_window, opener)
                     window = root.winfo_children()[0]
-                    self.assertIn('저장된 차입금 자료', window._work_status.get())
+                    self.wait_until(lambda: '갱신 자료 1개' in window._work_status.get() or show_error.called)
+                    show_error.assert_not_called()
                     buttons = {button.text(): button for button in window._q.findChildren(q.W.QPushButton)}
-                    generate, excel = buttons['생성'], buttons['엑셀 열기']
+                    excel = buttons['엑셀 열기']
                     year = window._q.findChild(q.W.QSpinBox)
                     year.setValue(2025)
-                    generate.click()
                     self.wait_until(lambda: excel.isEnabled() or show_error.called)
 
                     self.assertFalse(errors)
@@ -112,7 +117,8 @@ class LoanReportTests(unittest.TestCase):
                     year.setValue(2026)
                     self.assertFalse(excel.isEnabled())
                     results.setCurrentIndex(0)
-                    self.assertEqual(summary.rowCount(), 0)
+                    self.wait_until(lambda: '2026년 차입금 현황' in window._work_status.get() or show_error.called)
+                    self.assertEqual(summary.index(values.index('조회 연도'), 1).data(), '2026')
         finally:
             root.destroy()
 
@@ -141,6 +147,7 @@ class LoanReportTests(unittest.TestCase):
     def test_source_release_excludes_uploaded_loan_data(self):
         self.assertFalse(allowed('data/loans/originals/상환내역.xlsx'))
         self.assertFalse(allowed('settings/loan-sources.zip'))
+        self.assertTrue(allowed('data/loans/loan-sources.zip'))
 
     def write_source(self, path, amount, due=date(2025, 2, 1)):
         workbook = Workbook()

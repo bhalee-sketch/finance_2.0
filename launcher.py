@@ -108,7 +108,8 @@ def save_preferences(path,preferences):
 
 
 class Launcher:
-    def __init__(self,root,groups,settings_path):
+    def __init__(self,root,groups,settings_path,*,work_settings=None):
+        self.work_settings=Path(work_settings) if work_settings is not None else Path(settings_path).parent
         self.settings_path=Path(settings_path);self.preferences=load_preferences(settings_path)
         from appearance import set_appearance
         set_appearance(root,self.preferences['theme'],self.preferences['font'],self.preferences.get('chart_font',''),self.preferences.get('numeric_font',''),self.preferences.get('text_scale',110),self.preferences.get('text_sizes'))

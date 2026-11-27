@@ -8,7 +8,7 @@ from qt_ui import messagebox, ttk
 from analysis_charts import lines
 from analysis_topics import loan_dashboard
 from finance_ui import apply_widths, content_widths, fill, saved, target_file
-from loan_manager import HEADERS, uploaded_loan_sources
+from loan_manager import HEADERS, active_loan_archive, uploaded_loan_sources
 from statement_ui import table
 from responsive_ui import wrapping_row
 
@@ -111,15 +111,15 @@ def install_repayment_tab(notebook, window, storage, report_year, task, status, 
         year.set('')
         start.set('전체')
         export_button.configure(state='disabled')
-        note.set('차입금 원자료를 사용합니다.' if storage.is_file() else '자료 업로드에서 차입금 원자료를 선택하세요.')
+        note.set('')
         draw()
 
     def load():
-        if task.busy or not storage.is_file():
+        if task.busy:
             return
 
         def work():
-            with uploaded_loan_sources(storage) as folder:
+            with uploaded_loan_sources(active_loan_archive(storage)) as folder:
                 yearly, quarterly, paths = loan_dashboard(folder)
                 return yearly, quarterly, [Path(path).name for path in paths]
 

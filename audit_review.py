@@ -38,7 +38,8 @@ AUDIT_HEADERS=['확인 상태','년도','회계단위','관','항','목','회계
 
 AUDIT_SOURCE_FIELDS=('년도','원본 파일','원본 행')
 AUDIT_EXPORT_INDICES=tuple(i for i,h in enumerate(AUDIT_HEADERS) if h not in ('검토할 과목','근거 페이지'))
-AUDIT_VISIBLE_INDICES=tuple(i for i in AUDIT_EXPORT_INDICES if AUDIT_HEADERS[i] not in AUDIT_SOURCE_FIELDS)
+AUDIT_VISIBLE_INDICES=tuple(i for i in AUDIT_EXPORT_INDICES
+                           if AUDIT_HEADERS[i] not in (*AUDIT_SOURCE_FIELDS,'확인 상태','걸린 표현'))
 AUDIT_VISIBLE_HEADERS=[AUDIT_HEADERS[i] for i in AUDIT_VISIBLE_INDICES]
 
 

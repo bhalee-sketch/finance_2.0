@@ -120,9 +120,19 @@ class AnalysisToolTests(unittest.TestCase):
                     self.assertFalse(any(label.text()=='준비 중' for label in window._q.findChildren(q.W.QLabel)))
                     if title=='계정과목 검토':
                         table=window._q.findChild(q.W.QTableView)
+                        q.application().processEvents()
                         self.assertGreater(table.model().rowCount(),0)
                         self.assertLess(table.verticalHeader().defaultSectionSize(),32)
-                        self.assertLessEqual(table.horizontalHeader().length(),table.viewport().width())
+                        header = table.horizontalHeader()
+                        overflow = max(0, header.length() - table.viewport().width())
+                        self.assertEqual(table.horizontalScrollBar().maximum(), overflow)
+                        for col in range(header.count()):
+                            title = table.model().headerData(col, q.C.Qt.Orientation.Horizontal)
+                            if title in ('전표번호', '적요'):
+                                for row in range(table.rowAt(table.viewport().height()-1)+1):
+                                    cell = table.model().index(row, col)
+                                    metrics = q.G.QFontMetrics(cell.data(q.C.Qt.ItemDataRole.FontRole))
+                                    self.assertGreaterEqual(header.sectionSize(col), metrics.horizontalAdvance(cell.data()) + 6)
                 self.assertFalse(errors)
             finally:root.destroy()
 

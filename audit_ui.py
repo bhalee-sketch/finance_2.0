@@ -3,8 +3,7 @@ from collections import Counter
 from pathlib import Path
 import qt_ui as tk
 from qt_ui import ttk,messagebox
-from finance_ui import shell,saved,target_file,compact_combo,content_widths
-from statement_ui import table
+from finance_ui import shell,saved,target_file,compact_combo
 from statement_catalog import amount_text
 from analysis_runtime import load_audit_sources as load_sources,program_ledger_paths
 from audit_review import (AccountOrder,review_values,review_years,select_reviews,
@@ -14,7 +13,6 @@ from ui_theme import dark_titlebar
 
 class ReviewModel(tk.C.QAbstractTableModel):
     """Keep one reference to the filtered list and format only requested cells."""
-    result_fields={'확인 상태':'state','걸린 표현':'clue','확인 사유':'reason'}
     role=tk.C.Qt.ItemDataRole
 
     def __init__(self,tree):
@@ -44,8 +42,7 @@ class ReviewModel(tk.C.QAbstractTableModel):
         item=self.items[index.row()]
         money=title in ('차변','대변')
         if role in (self.role.DisplayRole,self.role.ToolTipRole,self.role.UserRole):
-            key=self.result_fields.get(title)
-            value=item[key] if key else item['record'][title]
+            value=item['reason'] if title=='확인 사유' else item['record'][title]
             return amount_text(value) if money and role!=self.role.UserRole else value
         if role==self.role.TextAlignmentRole:
             return tk.C.Qt.AlignmentFlag.AlignVCenter | (tk.C.Qt.AlignmentFlag.AlignRight if money else tk.C.Qt.AlignmentFlag.AlignLeft)
@@ -96,7 +93,8 @@ def open_audit(parent,desktop,center,open_file):
     review_tab=ttk.Frame(body);review_tab.pack(fill='both',expand=True)
     list_info=tk.StringVar()
     ttk.Label(review_tab,textvariable=list_info).pack(side='bottom',anchor='w',pady=6)
-    tree=table(review_tab,AUDIT_VISIBLE_HEADERS,column_preferences=True)
+    tree=ttk.Treeview(review_tab,columns=AUDIT_VISIBLE_HEADERS,show='headings')
+    tree.pack(fill='both',expand=True)
     view=tree._q
     model=ReviewModel(tree)
     tree.proxy.setSourceModel(model)
@@ -127,13 +125,11 @@ def open_audit(parent,desktop,center,open_file):
         preferred=[]
         for title,measured in zip(AUDIT_VISIBLE_HEADERS,natural_widths):
             floor=max(header.minimumSectionSize(),header.fontMetrics().horizontalAdvance(title)+14)
-            if title in ('차변','대변'):
+            if title in ('전표번호','적요','차변','대변'):
                 floor=max(floor,measured)
             minimum.append(preferences.width(title,floor))
             preferred.append(preferences.width(title,max(floor,measured)))
-        # Keep short identifiers intact and shrink the widest descriptions first.
-        if sum(minimum)>view.viewport().width():
-            minimum=[preferences.width(title,header.minimumSectionSize()) for title in AUDIT_VISIBLE_HEADERS]
+        # Let the table scroll if the voucher, memo and amounts need more room.
         low,high=0,max(preferred)
         while low<high:
             cap=(low+high+1)//2
@@ -188,8 +184,13 @@ def open_audit(parent,desktop,center,open_file):
                 index=tree.proxy.mapToSource(tree.proxy.index(i,0))
                 rows.append(visible_review_values(model.items[index.row()]))
         measured_blocks.update(blocks)
-        widths=content_widths(tree,AUDIT_VISIBLE_HEADERS,rows)
-        natural_widths[:]=map(max,natural_widths,widths)
+        for i,title in enumerate(AUDIT_VISIBLE_HEADERS):
+            money=title in ('차변','대변')
+            metrics=tk.G.QFontMetrics(tree._font(None,money).q)
+            values={row[i] for row in rows}
+            for value in values:
+                label=amount_text(value) if money else str(value or '')
+                natural_widths[i]=max(natural_widths[i],metrics.horizontalAdvance(label)+12)
         fit_results()
 
     def reset_measurements(*_):
@@ -231,7 +232,8 @@ def open_audit(parent,desktop,center,open_file):
         dialog=tk.Toplevel(window);dialog.title('계정과목 검토 · 거래 상세');dark_titlebar(dialog);center(dialog,850,620)
         text=tk.Text(dialog,bg='#192131',fg='#EDF2FA',insertbackground='#EDF2FA',wrap='word',padx=16,pady=16,font=('맑은 고딕',11))
         text.pack(fill='both',expand=True)
-        lines=[f'{label}: {value}' for label,value in zip(AUDIT_HEADERS,review_values(item)) if value!='']
+        lines=[f'{label}: {value if value!="" else "없음"}' for label,value in zip(AUDIT_HEADERS,review_values(item))
+               if value!='' or label=='걸린 표현']
         text.insert('1.0','\n'.join(lines));text.configure(state='disabled')
     view.doubleClicked.connect(detail)
     def refresh():

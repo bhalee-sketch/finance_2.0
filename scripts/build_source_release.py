@@ -16,7 +16,7 @@ RUNTIME_DATA={
     *LEDGERS,'data/statements/statements.sqlite3','data/appendices/balance.sqlite3',
     'data/appendices/operation.sqlite3','data/deposit/fixed_accounts.sqlite3',
     'data/deposit/regular_accounts.sqlite3','data/transfer/accounts.sqlite3',
-    'data/govsubsidy/statements.json','data/fund/statements.json',
+    'data/govsubsidy/statements.json','data/fund/statements.json','data/loans/loan-sources.zip',
 }
 
 

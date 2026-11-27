@@ -268,7 +268,7 @@ def main():
 
     def work_records_view():
         from work_records_ui import open_work_records
-        open_work_records(root,desktop,center_window)
+        open_work_records(root,desktop,center_window,launcher.workspace.dashboard.planner)
 
     def appendix_view():
         from appendix_view import open_appendix_view
@@ -311,7 +311,8 @@ def main():
         ]),
     ]
     from app_profile import menu_groups,settings_path
-    launcher=Launcher(root,menu_groups(groups),settings_path(desktop()/'settings'/'launcher.json'))
+    work_settings=desktop()/'settings'
+    launcher=Launcher(root,menu_groups(groups),settings_path(work_settings/'launcher.json'),work_settings=work_settings)
     root._launcher=launcher
     from app_profile import beta_label
     if beta_label():print('BETA_MENU_READY='+beta_label()+':'+','.join(title for _,cards in launcher.groups for title,_ in cards),flush=True)

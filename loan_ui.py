@@ -35,18 +35,16 @@ def open_loans(parent, center, open_file):
     year = tk.StringVar(value=str(date.today().year))
     line = ttk.Frame(controls)
     line.pack(fill='x', pady=8)
-    ttk.Label(line, text='조회 연도').pack(side='left')
-    ttk.Spinbox(line, from_=1900, to=9999, textvariable=year, width=8).pack(side='left', padx=10)
+    year_label = ttk.Label(line, text='조회 연도')
+    year_label.pack(side='left')
+    year_box = ttk.Spinbox(line, from_=1900, to=9999, textvariable=year, width=8)
+    year_box._q.setKeyboardTracking(False)
+    year_box.pack(side='left', padx=10)
 
     storage = desktop_dir()/'settings'/'loan-sources.zip'
 
-    def ready_status():
-        if storage.is_file():
-            return '저장된 차입금 자료를 사용합니다. 조회 연도를 선택하고 생성을 누르세요.'
-        return '자료 업로드에서 차입금 원자료를 선택하세요.'
-
-    status = tk.StringVar(value=ready_status())
-    window._work_status = status
+    status = tk.StringVar()
+    window._work_status = tk.StringVar()
     task = BackgroundRead(window, status)
     ttk.Separator(footer).pack(fill='x', pady=(0, 8))
     status_label = ttk.Label(footer, textvariable=status, wraplength=700, style='Muted.TLabel')
@@ -65,6 +63,33 @@ def open_loans(parent, center, open_file):
             )
     results.pack(fill='both', expand=True, pady=(6, 0))
 
+    closing_view = None
+    closing_page = None
+
+    def update_work_status(*_):
+        closing = closing_page is not None and results._q.currentWidget() is closing_page._q
+        window._work_status.set(closing_view.caption.text() if closing else status.get())
+
+    def show_context_controls():
+        closing = closing_page is not None and results._q.currentWidget() is closing_page._q
+        for control in (year_label, year_box, excel_button, status_label):
+            control._q.setVisible(not closing)
+        update_work_status()
+
+    def show_closing_loans(data, selected_year, scope):
+        nonlocal closing_view, closing_page
+        if closing_view is None:
+            from dashboard_loan_view import ClosingLoanView
+            page = ttk.Frame(results)
+            layout = tk.W.QVBoxLayout(page._q)
+            closing_page = page
+            closing_view = ClosingLoanView(storage)
+            layout.addWidget(closing_view)
+            results.add(page,text='결산 기준 차입금')
+        results._q.setCurrentIndex(results._q.count()-1)
+        closing_view.display(data, selected_year, scope)
+        update_work_status()
+    window.show_closing_loans = show_closing_loans
     report = None
     exported_path = None
 
@@ -77,35 +102,33 @@ def open_loans(parent, center, open_file):
         excel_button.configure(state='disabled')
         for tree in result_tables.values():
             tree.delete(*tree.get_children())
-        status.set(ready_status())
 
     def upload():
         if task.busy:
             return
         paths = filedialog.askopenfilenames(
-            parent=window, title='차입금 원자료 업로드', filetypes=[('Excel', '*.xls *.xlsx *.xlsm')]
+            parent=window, title='차입금 자료 갱신 · 전체 원자료 파일 선택', filetypes=[('Excel', '*.xls *.xlsx *.xlsm')]
         )
         if not paths:
             return
 
-        def updated(count):
-            clear_report()
+        def updated(_count):
             reset_repayment()
-            status.set(f'차입금 원자료 {count}개를 저장했습니다. 생성을 누르면 최신 자료를 집계합니다.')
-            load_repayment_if_selected()
+            if closing_view is not None:
+                closing_view.refresh()
+            execute()
 
         def failed(error):
-            status.set('자료 업로드에 실패했습니다. '+ready_status())
-            messagebox.showerror('자료 업로드 실패', str(error), parent=window)
+            status.set('자료 갱신에 실패했습니다. 기존 자료를 사용합니다.')
+            messagebox.showerror('차입금 자료 갱신 실패', str(error), parent=window)
 
         task.run(lambda: upload_loan_sources(paths, storage), updated, failed)
 
     def execute():
         if task.busy:
+            refresh_timer.start(100)
             return
-        if not storage.is_file():
-            status.set(ready_status())
-            return
+        refresh_timer.stop()
         try:
             selected_year = target_year(year.get())
         except ValueError as error:
@@ -114,6 +137,10 @@ def open_loans(parent, center, open_file):
 
         def show_report(workbook):
             nonlocal report
+            if selected_year != target_year(year.get()):
+                workbook.close()
+                execute()
+                return
             report = workbook
             for title, tree in result_tables.items():
                 if title == '요약':
@@ -132,9 +159,10 @@ def open_loans(parent, center, open_file):
                 numeric_end = len(headers)-1 if headers[-1] == '상태' else len(headers)
                 fill(tree, headers, rows, range(numeric_start, numeric_end))
                 apply_widths(tree, content_widths(tree, headers, rows))
-            results.select(0)
             excel_button.configure(state='normal')
-            status.set(f'{selected_year}년 조회 결과를 생성했습니다.')
+            source = '갱신 자료' if storage.is_file() else '내장 자료'
+            status.set(f'{selected_year}년 차입금 현황 · {source} {workbook["파일별현황"].max_row-1}개')
+            load_repayment_if_selected()
 
         def failed(error):
             status.set('차입금 자료를 집계하지 못했습니다.')
@@ -144,7 +172,7 @@ def open_loans(parent, center, open_file):
         task.run(lambda: build_uploaded_loan_report(storage, selected_year), show_report, failed)
 
     def open_excel():
-        if report is None or task.busy:
+        if report is None or task.busy or refresh_timer.isActive():
             return
 
         def open_saved(path):
@@ -155,6 +183,7 @@ def open_loans(parent, center, open_file):
                 open_file(path)
             except Exception as error:
                 messagebox.showwarning('저장 완료 · 열기 실패', f'{path}\n\n{error}', parent=window)
+            load_repayment_if_selected()
 
         def failed(error):
             status.set('Excel 파일을 저장하지 못했습니다.')
@@ -166,11 +195,21 @@ def open_loans(parent, center, open_file):
             snapshot = report
             task.run(lambda: save_loan_report(snapshot), open_saved, failed)
 
-    ttk.Button(line, text='자료 업로드', command=upload).pack(side='left')
+    ttk.Button(line, text='차입금 자료 갱신', command=upload).pack(side='left')
     excel_button = ttk.Button(line, text='엑셀 열기', command=open_excel, state='disabled')
     excel_button.pack(side='right')
-    ttk.Button(line, text='생성', command=execute, style='Primary.TButton').pack(side='right', padx=(0, 8))
-    year.trace_add('write', clear_report)
+    results._q.currentChanged.connect(show_context_controls)
+    status.trace_add('write', update_work_status)
+    refresh_timer = tk.C.QTimer(window._q)
+    refresh_timer.setSingleShot(True)
+    refresh_timer.timeout.connect(execute)
+
+    def year_changed(*_):
+        excel_button.configure(state='disabled')
+        refresh_timer.start(180)
+
+    year.trace_add('write', year_changed)
+    refresh_timer.start(0)
 
     def close_report(event):
         if report is not None:

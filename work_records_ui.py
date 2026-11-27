@@ -9,7 +9,7 @@ from work_record_grid import FreeSheet
 from work_records import RecordBook
 
 
-def open_work_records(parent, desktop, center):
+def open_work_records(parent, desktop, center, planner=None):
     try:
         book = RecordBook(desktop() / 'settings' / '업무 기록.sqlite3')
         tasks = book.tasks()
@@ -148,5 +148,13 @@ def open_work_records(parent, desktop, center):
     grid.model().dataChanged.connect(selection_changed)
     window.protocol('WM_DELETE_WINDOW', window.destroy)
     window.bind('<Destroy>', lambda _: finish_edit(), add='+')
+    if planner is not None:
+        def refresh_planner_rows():
+            try:
+                load_tasks(book.tasks(), selected_task())
+            except (OSError, sqlite3.Error) as error:
+                status.set(f'업무 일정 조회 실패 · {error}')
+        connection = planner.changed.connect(refresh_planner_rows)
+        window._q.destroyed.connect(lambda: C.QObject.disconnect(connection))
     load_tasks(tasks)
     return window

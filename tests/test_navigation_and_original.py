@@ -4,19 +4,23 @@ from pathlib import Path
 import sys,time,tempfile,unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import qt_ui as q
+from PySide6.QtTest import QTest
 from launcher import Launcher
 from appendix_view import open_appendix_view
 from openpyxl import load_workbook
 
 
 class NavigationTests(unittest.TestCase):
-    def test_home_closes_tabs_and_waits_for_busy_work(self):
-        root=q.Tk();blocked={'busy':True}
+    def test_dashboard_preserves_tabs_and_unsaved_work(self):
+        root=q.Tk();busy=True;close_requests=[]
         def first():
-            window=q.Toplevel(root);q.ttk.Label(window,text='업무').pack()
+            window=q.Toplevel(root);q.ttk.Entry(window).pack()
         def second():
             window=q.Toplevel(root);q.ttk.Label(window,text='작업 중').pack()
-            window.protocol('WM_DELETE_WINDOW',lambda:None if blocked['busy'] else window.destroy())
+            def close():
+                close_requests.append(window)
+                if not busy:window.destroy()
+            window.protocol('WM_DELETE_WINDOW',close)
         try:
             with tempfile.TemporaryDirectory() as folder:
                 launcher=Launcher(root,[('1. 재무제표',[('첫째',first),('둘째',second)])],Path(folder)/'settings.json')
@@ -25,12 +29,26 @@ class NavigationTests(unittest.TestCase):
                 self.assertLessEqual(workspace.notebook._q.x()-workspace.side.geometry().right()-1,4)
                 group=workspace.nav._nodes['g0'];self.assertEqual(group.text(),'재무제표');self.assertFalse(group.icon().isNull())
                 workspace.open('g0c0');workspace.open('g0c1');q.application().processEvents()
-                workspace.home_button.click();q.application().processEvents()
+                opened=workspace.tabs.copy()
+                entry=opened['g0c0']._q.findChild(q.W.QLineEdit)
+                entry.setText('작성 중')
+                self.assertEqual(workspace.home_button.text(),'대시보드')
+                workspace.home_button.click();workspace.home_button.click()
                 self.assertEqual(workspace.notebook.select(),str(workspace.home))
-                self.assertEqual(len(workspace.tabs),1)
-                blocked['busy']=False;end=time.monotonic()+2
-                while workspace.tabs and time.monotonic()<end:q.application().processEvents();time.sleep(.01)
-                self.assertFalse(workspace.tabs);self.assertEqual(workspace.top_tabs.count(),0)
+                self.assertTrue(workspace.home_button.isChecked())
+                self.assertEqual(workspace.status.get(),'대시보드')
+                busy=False;QTest.qWait(300)
+                self.assertEqual(close_requests,[])
+                self.assertEqual(workspace.tabs,opened)
+                self.assertEqual(workspace.top_tabs.count(),2)
+                for index,key in [(1,'g0c1'),(0,'g0c0')]:
+                    QTest.mouseClick(workspace.top_tabs,q.C.Qt.MouseButton.LeftButton,
+                                     pos=workspace.top_tabs.tabRect(index).center())
+                    self.assertEqual(workspace.notebook.select(),str(opened[key]))
+                self.assertEqual(entry.text(),'작성 중')
+                workspace.close_index(1)
+                self.assertEqual(close_requests,[opened['g0c1']])
+                self.assertEqual(list(workspace.tabs),['g0c0'])
         finally:root.destroy()
 
     def test_current_sheet_opens_its_original_workbook_and_year_alignment(self):
